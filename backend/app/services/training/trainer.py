@@ -1,0 +1,165 @@
+import json
+import os
+import anthropic
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from app.models.models import Company, CompanyDocument, SkillConfig
+from app.schemas.schemas import TrainingStatus
+
+# ── Paths ────────────────────────────────────────────────────────────────────
+BASE_DIR          = os.path.dirname(os.path.abspath(__file__))
+SKILLS_DIR        = os.path.abspath(os.path.join(BASE_DIR, "..", "..", "..", "..", "skills"))
+TEMPLATES_DIR     = os.path.join(SKILLS_DIR, "templates")
+OUTPUT_DIR        = os.path.join(SKILLS_DIR, "trained")
+TRAINER_SKILL     = os.path.join(TEMPLATES_DIR, "trainer_template.md")
+
+TEMPLATES_TO_TRAIN = ["curator", "reviewer"]
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+def load_file(path: str) -> str:
+    with open(path, "r") as f:
+        return f.read()
+
+
+def call_trainer(client, trainer_skill: str, template: str, company_data: dict) -> str:
+    print(f"    Calling Claude...")
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=4096,
+        system=trainer_skill,
+        messages=[
+            {
+                "role": "user",
+                "content": f"""## Skill Template
+{template}
+
+## Company Onboarding Data
+{json.dumps(company_data, indent=2)}
+"""
+            }
+        ]
+    )
+    return response.content[0].text
+
+
+# ── TrainingService (used by onboarding API route) ────────────────────────────
+
+class TrainingService:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def train_company_skills(self, company_id: str) -> TrainingStatus:
+        # Load company record
+        result = await self.db.execute(select(Company).where(Company.id == company_id))
+        company = result.scalar_one_or_none()
+        if not company:
+            raise ValueError(f"Company {company_id} not found")
+
+        # Load all company documents
+        docs_result = await self.db.execute(
+            select(CompanyDocument).where(CompanyDocument.company_id == company_id)
+        )
+        docs = docs_result.scalars().all()
+
+        # Build company_data dict that mirrors the JSON format the trainer expects
+        def concat(doc_type):
+            return "\n".join(d.content for d in docs if d.doc_type == doc_type and d.content)
+
+        company_data = {
+            "company_name":       company.name,
+            "industry":           company.industry or "",
+            "usp_summary":        concat("usp"),
+            "marketing_goals":    concat("marketing_goal"),
+            "compliance_notes":   concat("compliance"),
+            "ethical_guidelines": concat("ethical_guideline"),
+            "lessons_learned":    concat("reference") or "No lessons learned yet.",
+        }
+
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        trainer_skill = load_file(TRAINER_SKILL)
+        skill_versions = {}
+
+        for skill_name in TEMPLATES_TO_TRAIN:
+            print(f"  → Training {skill_name} skill for company {company.name}...")
+            template_path = os.path.join(TEMPLATES_DIR, f"{skill_name}_template.md")
+            template = load_file(template_path)
+
+            if api_key:
+                client = anthropic.Anthropic(api_key=api_key)
+                filled = call_trainer(client, trainer_skill, template, company_data)
+            else:
+                # No API key — store raw template as fallback
+                print(f"    ⚠ ANTHROPIC_API_KEY not set, storing template as-is")
+                filled = template
+
+            # Save to DB (create or update SkillConfig)
+            existing = await self.db.execute(
+                select(SkillConfig).where(
+                    SkillConfig.company_id == company_id,
+                    SkillConfig.skill_type == skill_name,
+                )
+            )
+            skill = existing.scalar_one_or_none()
+
+            if skill:
+                skill.skill_md = filled
+                skill.version += 1
+            else:
+                skill = SkillConfig(
+                    company_id=company_id,
+                    skill_type=skill_name,
+                    skill_md=filled,
+                    version=1,
+                )
+                self.db.add(skill)
+
+            await self.db.flush()
+            skill_versions[skill_name] = skill.version
+            print(f"  ✅  {skill_name} skill saved to DB (v{skill.version})")
+
+        await self.db.commit()
+
+        return TrainingStatus(
+            company_id=company_id,
+            curator_ready=True,
+            reviewer_ready=True,
+            skill_versions=skill_versions,
+        )
+
+
+# ── Standalone script (python trainer.py) ────────────────────────────────────
+
+def train():
+    COMPANY_DATA_PATH = os.path.join(BASE_DIR, "sample_company.json")
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise EnvironmentError("ANTHROPIC_API_KEY not set.")
+
+    client        = anthropic.Anthropic(api_key=api_key)
+    trainer_skill = load_file(TRAINER_SKILL)
+    company_data  = json.loads(load_file(COMPANY_DATA_PATH))
+
+    print(f"Training skills for: {company_data['company_name']} ({company_data['industry']})\n")
+
+    for skill_name in TEMPLATES_TO_TRAIN:
+        print(f"  → Training {skill_name} skill...")
+        template_path = os.path.join(TEMPLATES_DIR, f"{skill_name}_template.md")
+        template      = load_file(template_path)
+
+        filled = call_trainer(client, trainer_skill, template, company_data)
+
+        output_path = os.path.join(OUTPUT_DIR, f"{skill_name}_skill.md")
+        with open(output_path, "w") as f:
+            f.write(filled)
+
+        print(f"  ✅  {skill_name}_skill.md written → {output_path}\n")
+
+    print("Training complete.")
+
+
+if __name__ == "__main__":
+    train()

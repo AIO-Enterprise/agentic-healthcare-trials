@@ -1,0 +1,25 @@
+{
+    "company_name": "MediCare+",
+    "industry": "Healthcare",
+    "usp_summary": "MediCare+ offers AI-powered personalised health monitoring plans with 24/7 doctor consultations, bringing the gap between annual checkups and real-time health management for working professionals aged 25-45.",
+    "marketing_goals": [
+        "Acquire 10,000 new subscribers in Q2 2026",
+        "Increase brand awareness in Tier 1 Indian Cities",
+        "Drive app downloads via targeted digital campaign",
+        "Position MediCare+ as the most trusted preventive healthcare brand"
+    ],
+    "compliance_notes": [
+        "All health claims must be backed by cited clinical evidence",
+        "Cannot guarantee specific medical outcomes in any advertisement",
+        "Must include 'Consult your doctor before making health decisions' disclaimer in all ads",
+        "Patient data privacy must be referenced - DPDP Act 2023 compliant",
+        "No fear-based marketing tactics allowed"
+    ],
+    "ethical_guidelines": [
+        "Do not exploit health anxiety or use fear as a conversion tool",
+        "Represent diverse demographics in all visual content",
+        "Be transparent about AI involvement in health monitoring",
+        "Never compare negatively to competitor products by name"
+    ],
+    "lessons_learned": "No lessons learned yet."
+}

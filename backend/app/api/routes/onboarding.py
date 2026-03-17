@@ -1,0 +1,113 @@
+"""
+M3: Onboarding Routes
+Owner: Backend Dev 2
+Dependencies: M1 (models), M2 (auth), M4 (training service)
+
+POST /onboarding/             — Register company + admin (one-time)
+POST /onboarding/documents    — Upload company documents
+POST /onboarding/train        — Trigger AI training (skill initialization)
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from typing import List
+
+from app.db.database import get_db
+from app.models.models import Company, User, CompanyDocument, UserRole, DocumentType
+from app.schemas.schemas import (
+    OnboardingRequest, OnboardingResponse, TrainingRequest, TrainingStatus,
+    DocumentOut,
+)
+from app.core.security import hash_password, get_current_user, require_roles
+from app.services.training.trainer import TrainingService
+
+router = APIRouter(prefix="/onboarding", tags=["Onboarding"])
+
+
+@router.post("/", response_model=OnboardingResponse)
+async def onboard_company(body: OnboardingRequest, db: AsyncSession = Depends(get_db)):
+    """
+    One-time company onboarding.
+    Creates the company record, registers the ADMIN user,
+    and sets up the dashboard branding.
+    """
+    # Check duplicate
+    existing = await db.execute(select(Company).where(Company.name == body.company_name))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Company already exists")
+
+    # Create company
+    company = Company(
+        name=body.company_name,
+        industry=body.industry,
+        logo_url=body.logo_url,
+    )
+    db.add(company)
+    await db.flush()
+
+    # Create admin user (compulsory)
+    admin = User(
+        company_id=company.id,
+        email=body.admin_email,
+        hashed_pw=hash_password(body.admin_password),
+        full_name=body.admin_name,
+        role=UserRole.ADMIN,
+    )
+    db.add(admin)
+    await db.flush()
+
+    company.onboarded = True
+
+    return OnboardingResponse(company_id=company.id, admin_user_id=admin.id)
+
+
+@router.post("/documents", response_model=DocumentOut)
+async def upload_document(
+    doc_type: str = Form(...),
+    title: str = Form(...),
+    content: str = Form(None),
+    file: UploadFile = File(None),
+    user: User = Depends(require_roles([UserRole.ADMIN])),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Upload company-specific documents during or after onboarding.
+    Supports: USP, Compliances, Policies, Marketing Goals, Ethical Guidelines, etc.
+    """
+    file_path = None
+    if file:
+        import os
+        upload_dir = f"./uploads/{user.company_id}"
+        os.makedirs(upload_dir, exist_ok=True)
+        file_path = f"{upload_dir}/{file.filename}"
+        with open(file_path, "wb") as f:
+            f.write(await file.read())
+
+    doc = CompanyDocument(
+        company_id=user.company_id,
+        doc_type=doc_type,
+        title=title,
+        content=content,
+        file_path=file_path,
+    )
+    db.add(doc)
+    await db.flush()
+
+    return doc
+
+
+@router.post("/train", response_model=TrainingStatus)
+async def trigger_training(
+    user: User = Depends(require_roles([UserRole.ADMIN])),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Trigger AI Training (skill-creator):
+    1. Read skill.md templates for Curator and Reviewer
+    2. Fill placeholders with company-specific data from onboarding
+    3. Generate customized skill.md files
+    """
+    trainer = TrainingService(db)
+    status = await trainer.train_company_skills(user.company_id)
+    return status
