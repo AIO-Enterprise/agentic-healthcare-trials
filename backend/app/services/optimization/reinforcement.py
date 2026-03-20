@@ -14,7 +14,6 @@ demographics reached, ethical considerations, admin reviews.
 """
 
 import json
-import httpx
 from datetime import datetime
 from typing import Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +23,7 @@ from app.models.models import (
     ReinforcementLog, SkillConfig, CompanyDocument, DocumentType,
     OptimizerLog, Advertisement, Review, AdAnalytics,
 )
-from app.core.config import settings
+from app.core.bedrock import get_async_client, get_model, is_configured
 
 
 class ReinforcementService:
@@ -171,31 +170,17 @@ Produce a structured reference document covering:
 6. Key Lessons Learned (prioritized list)
 """
 
-        if not settings.ANTHROPIC_API_KEY:
+        if not is_configured():
             return self._mock_formalized(raw_data)
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": settings.ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": settings.ANTHROPIC_MODEL,
-                    "max_tokens": 2048,
-                    "system": system_prompt,
-                    "messages": [{"role": "user", "content": user_message}],
-                },
-                timeout=120.0,
-            )
-            response.raise_for_status()
-            data = response.json()
-
-        return "".join(
-            b["text"] for b in data.get("content", []) if b.get("type") == "text"
+        client   = get_async_client()
+        response = await client.messages.create(
+            model=get_model(),
+            max_tokens=2048,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
         )
+        return response.content[0].text
 
     async def _update_reference_document(self, content: str, ad_id: str):
         """

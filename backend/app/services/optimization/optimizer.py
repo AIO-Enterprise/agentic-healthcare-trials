@@ -14,13 +14,12 @@ Context from Reviewer adds situational awareness.
 """
 
 import json
-import httpx
 from typing import Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models.models import Advertisement, AdAnalytics, Review, SkillConfig
-from app.core.config import settings
+from app.core.bedrock import get_async_client, get_model, is_configured
 
 
 # Weight configuration per ad type
@@ -191,29 +190,18 @@ Produce optimization suggestions as JSON:
 }}
 """
 
-        if not settings.ANTHROPIC_API_KEY:
+        if not is_configured():
             return self._mock_suggestions(perf_analysis)
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": settings.ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": settings.ANTHROPIC_MODEL,
-                    "max_tokens": 2048,
-                    "system": system_prompt,
-                    "messages": [{"role": "user", "content": user_message}],
-                },
-                timeout=120.0,
-            )
-            response.raise_for_status()
-            data = response.json()
+        client   = get_async_client()
+        response = await client.messages.create(
+            model=get_model(),
+            max_tokens=2048,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        text = response.content[0].text
 
-        text = "".join(b["text"] for b in data.get("content", []) if b.get("type") == "text")
         try:
             clean = text.strip().removeprefix("```json").removesuffix("```").strip()
             return json.loads(clean)

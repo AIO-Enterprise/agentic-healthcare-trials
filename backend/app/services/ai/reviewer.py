@@ -10,13 +10,12 @@ Reviews Curator-generated strategies and produces:
 """
 
 import json
-import httpx
 from typing import Dict, Any, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models.models import Advertisement, SkillConfig, Review
-from app.core.config import settings
+from app.core.bedrock import get_async_client, get_model, is_configured
 
 
 class ReviewerService:
@@ -109,29 +108,18 @@ Respond ONLY with the JSON object.
         return skill.skill_md
 
     async def _call_claude(self, system_prompt: str, user_message: str) -> Dict[str, Any]:
-        if not settings.ANTHROPIC_API_KEY:
+        if not is_configured():
             return self._mock_review()
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": settings.ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": settings.ANTHROPIC_MODEL,
-                    "max_tokens": 4096,
-                    "system": system_prompt,
-                    "messages": [{"role": "user", "content": user_message}],
-                },
-                timeout=120.0,
-            )
-            response.raise_for_status()
-            data = response.json()
+        client   = get_async_client()
+        response = await client.messages.create(
+            model=get_model(),
+            max_tokens=4096,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        text = response.content[0].text
 
-        text = "".join(b["text"] for b in data.get("content", []) if b.get("type") == "text")
         try:
             clean = text.strip().removeprefix("```json").removesuffix("```").strip()
             return json.loads(clean)

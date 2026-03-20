@@ -1,11 +1,11 @@
 import json
 import os
-import anthropic
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models.models import Company, CompanyDocument, SkillConfig
 from app.schemas.schemas import TrainingStatus
+from app.core.bedrock import get_client, get_model, is_configured
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 BASE_DIR          = os.path.dirname(os.path.abspath(__file__))
@@ -26,7 +26,7 @@ def load_file(path: str) -> str:
 def call_trainer(client, trainer_skill: str, template: str, company_data: dict) -> str:
     print(f"    Calling Claude...")
     response = client.messages.create(
-        model="claude-sonnet-4-6",
+        model=get_model(),
         max_tokens=4096,
         system=trainer_skill,
         messages=[
@@ -77,7 +77,6 @@ class TrainingService:
             "lessons_learned":    concat("reference") or "No lessons learned yet.",
         }
 
-        api_key = os.getenv("ANTHROPIC_API_KEY")
         trainer_skill = load_file(TRAINER_SKILL)
         skill_versions = {}
 
@@ -86,12 +85,11 @@ class TrainingService:
             template_path = os.path.join(TEMPLATES_DIR, f"{skill_name}_template.md")
             template = load_file(template_path)
 
-            if api_key:
-                client = anthropic.Anthropic(api_key=api_key)
+            if is_configured():
+                client = get_client()
                 filled = call_trainer(client, trainer_skill, template, company_data)
             else:
-                # No API key — store raw template as fallback
-                print(f"    ⚠ ANTHROPIC_API_KEY not set, storing template as-is")
+                print(f"    No AI backend configured, storing template as-is")
                 filled = template
 
             # Save to DB (create or update SkillConfig)
@@ -135,11 +133,10 @@ def train():
     COMPANY_DATA_PATH = os.path.join(BASE_DIR, "sample_company.json")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise EnvironmentError("ANTHROPIC_API_KEY not set.")
+    if not is_configured():
+        raise EnvironmentError("No AI backend configured. Set USE_BEDROCK=true or ANTHROPIC_API_KEY.")
 
-    client        = anthropic.Anthropic(api_key=api_key)
+    client        = get_client()
     trainer_skill = load_file(TRAINER_SKILL)
     company_data  = json.loads(load_file(COMPANY_DATA_PATH))
 

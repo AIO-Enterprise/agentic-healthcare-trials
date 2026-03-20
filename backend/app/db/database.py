@@ -12,7 +12,8 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
 
-engine = create_async_engine(settings.DATABASE_URL, echo=settings.DEBUG)
+_connect_args = {"ssl": "require"} if settings.DATABASE_URL.startswith("postgresql") else {}
+engine = create_async_engine(settings.DATABASE_URL, echo=settings.DEBUG, connect_args=_connect_args)
 
 async_session_factory = async_sessionmaker(
     engine,

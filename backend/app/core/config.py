@@ -22,9 +22,16 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./marketing_platform.db"
     
-    # Anthropic
+    # Anthropic (direct API — leave blank when using Bedrock)
     ANTHROPIC_API_KEY: Optional[str] = None
     ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"
+
+    # AWS Bedrock (set these to route through Bedrock instead of direct API)
+    AWS_ACCESS_KEY_ID: Optional[str] = None
+    AWS_SECRET_ACCESS_KEY: Optional[str] = None
+    AWS_REGION: str = "us-east-1"
+    BEDROCK_MODEL: str = "anthropic.claude-sonnet-4-5"
+    USE_BEDROCK: bool = False
     
     # File storage
     UPLOAD_DIR: str = "./uploads"
