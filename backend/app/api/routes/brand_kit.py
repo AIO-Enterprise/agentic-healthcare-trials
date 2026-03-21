@@ -3,13 +3,12 @@ Brand Kit Routes
 Owner: Backend Dev 2
 Dependencies: M1, M2
 
-POST /onboarding/logo  — Upload company logo, returns static URL
+POST /onboarding/logo  — Upload company logo, returns stored URL
 POST /brand-kit/       — Create brand kit during onboarding (Admin only)
 GET  /brand-kit/       — Fetch company brand kit
 PATCH /brand-kit/      — Update brand kit (editable from settings)
 """
 
-import os
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,11 +18,10 @@ from app.db.database import get_db
 from app.models.models import User, UserRole, BrandKit
 from app.schemas.schemas import BrandKitCreate, BrandKitOut, BrandKitUpdate, LogoUploadResponse
 from app.core.security import require_roles, get_current_user
-from app.core.config import settings
+from app.services.storage import storage
 
 router = APIRouter(tags=["Brand Kit"])
 
-LOGO_DIR = os.path.join(settings.STATIC_DIR, "logos")
 ALLOWED_LOGO_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/svg+xml"}
 
 
@@ -36,7 +34,9 @@ async def upload_logo(
 ):
     """
     Upload company logo after registration.
-    Accepts JPEG, PNG, SVG. Returns a static URL.
+    Accepts JPEG, PNG, SVG. Returns the stored URL.
+    File is saved via the storage service (currently local, swap to Azure Blob
+    by updating app/services/storage.py only).
     """
     if file.content_type not in ALLOWED_LOGO_TYPES:
         raise HTTPException(
@@ -44,16 +44,15 @@ async def upload_logo(
             detail="Invalid file type. Accepted: JPEG, PNG, SVG.",
         )
 
-    os.makedirs(LOGO_DIR, exist_ok=True)
-
     ext = file.filename.rsplit(".", 1)[-1] if "." in file.filename else "png"
     filename = f"{user.company_id}_{uuid.uuid4().hex}.{ext}"
-    file_path = os.path.join(LOGO_DIR, filename)
 
-    with open(file_path, "wb") as f:
-        f.write(await file.read())
+    logo_url = await storage.save(
+        file=file,
+        subfolder="logos",
+        filename=filename,
+    )
 
-    logo_url = f"{settings.STATIC_URL}/logos/{filename}"
     return LogoUploadResponse(logo_url=logo_url)
 
 
