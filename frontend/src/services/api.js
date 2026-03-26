@@ -232,6 +232,11 @@ export const adsAPI = {
 
   listDocuments: (adId) => request(`/advertisements/${adId}/documents`),
 
+  getDocFileUrl: (adId, docId) => {
+    const token = localStorage.getItem("token");
+    return `${API_BASE}/advertisements/${adId}/documents/${docId}/file?token=${token}`;
+  },
+
   generateStrategy: (adId) =>
     request(`/advertisements/${adId}/generate-strategy`, { method: "POST" }),
 

@@ -14,7 +14,7 @@
  * Styles: index.css classes only, no raw Tailwind color utilities.
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   PageWithSidebar, SectionCard, CampaignStatusBadge,
@@ -24,9 +24,10 @@ import {
   ArrowLeft, CheckCircle, XCircle, MessageSquare,
   Megaphone, Globe, Image, Bot, Loader2, AlertCircle,
   ChevronDown, ChevronUp, Target, DollarSign, Users,
-  Layers, TrendingUp, List, Send, Pencil, Sparkles,
+  Layers, TrendingUp, List, Send, Sparkles,
   RefreshCw, CheckCircle2, BarChart2, Zap, MessageCircle,
-  FileText, ClipboardList,
+  FileText, ClipboardList, Eye, Calendar, LayoutDashboard,
+  History, ClipboardCheck, Download, X,
 } from "lucide-react";
 
 const QUESTIONNAIRE_CATEGORIES = new Set(["recruitment", "hiring", "survey", "clinical_trial", "research"]);
@@ -133,6 +134,8 @@ function Tag({ children }) {
       color: "var(--color-primary, #166534)",
       borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 500,
       marginRight: 4, marginBottom: 4,
+      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+      maxWidth: 160, flexShrink: 0,
     }}>
       {children}
     </span>
@@ -141,12 +144,11 @@ function Tag({ children }) {
 
 // ─── Collapsible strategy section (same as ReviewerDashboard) ─────────────────
 
-function StrategySection({ icon: Icon, title, children, defaultOpen = false }) {
-  const [open, setOpen] = useState(defaultOpen);
+function StrategySection({ icon: Icon, title, children, isOpen, onToggle }) {
   return (
     <div style={{ border: "1px solid var(--color-border, #e5e7eb)", borderRadius: 10, overflow: "hidden", marginBottom: 10 }}>
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={onToggle}
         style={{
           width: "100%", display: "flex", alignItems: "center", gap: 10,
           padding: "12px 16px", background: "var(--color-card-bg, #f9fafb)",
@@ -155,9 +157,9 @@ function StrategySection({ icon: Icon, title, children, defaultOpen = false }) {
       >
         <Icon size={15} style={{ color: "var(--color-primary, #166534)", flexShrink: 0 }} />
         <span style={{ fontSize: 13, fontWeight: 600, color: "var(--color-input-text, #111)", flex: 1 }}>{title}</span>
-        {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
       </button>
-      {open && (
+      {isOpen && (
         <div style={{ padding: "14px 16px", background: "var(--color-surface, #fff)", fontSize: 13 }}>
           {children}
         </div>
@@ -167,19 +169,21 @@ function StrategySection({ icon: Icon, title, children, defaultOpen = false }) {
 }
 
 function StrategyViewer({ strategy }) {
+  const [openSection, setOpenSection] = useState(null);
+  const toggle = (key) => setOpenSection((prev) => prev === key ? null : key);
+
   if (!strategy) return (
     <p style={{ fontSize: 13, color: "var(--color-sidebar-text)" }}>No strategy generated yet.</p>
   );
   const s = strategy;
-  const budgetEntries = s.budget_allocation ? Object.entries(s.budget_allocation) : [];
   return (
     <div>
-      <StrategySection icon={Megaphone} title="Executive Summary" defaultOpen>
+      <StrategySection icon={Megaphone} title="Executive Summary" isOpen={openSection === "summary"} onToggle={() => toggle("summary")}>
         <p style={{ color: "var(--color-input-text)", lineHeight: 1.7 }}>{s.executive_summary}</p>
       </StrategySection>
 
       {s.target_audience && (
-        <StrategySection icon={Users} title="Target Audience" defaultOpen>
+        <StrategySection icon={Users} title="Target Audience" isOpen={openSection === "audience"} onToggle={() => toggle("audience")}>
           {[["PRIMARY", s.target_audience.primary], ["SECONDARY", s.target_audience.secondary], ["DEMOGRAPHICS", s.target_audience.demographics]]
             .filter(([, v]) => v)
             .map(([label, text]) => (
@@ -192,7 +196,7 @@ function StrategyViewer({ strategy }) {
       )}
 
       {s.messaging && (
-        <StrategySection icon={MessageSquare} title="Messaging">
+        <StrategySection icon={MessageSquare} title="Messaging" isOpen={openSection === "messaging"} onToggle={() => toggle("messaging")}>
           {s.messaging.core_message && (
             <div style={{ background: "var(--color-primary-light, #dcfce7)", borderLeft: "3px solid var(--color-primary, #166534)", padding: "12px 16px", borderRadius: 6, marginBottom: 14, fontStyle: "italic", color: "var(--color-primary, #166534)", fontWeight: 500, lineHeight: 1.6 }}>
               "{s.messaging.core_message}"
@@ -218,7 +222,7 @@ function StrategyViewer({ strategy }) {
       )}
 
       {s.content_plan?.length > 0 && (
-        <StrategySection icon={List} title={`Content Plan (${s.content_plan.length} items)`}>
+        <StrategySection icon={List} title={`Content Plan (${s.content_plan.length} items)`} isOpen={openSection === "content"} onToggle={() => toggle("content")}>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {s.content_plan.map((item, i) => (
               <div key={i} style={{ border: "1px solid var(--color-border, #e5e7eb)", borderRadius: 8, padding: "10px 14px" }}>
@@ -234,31 +238,34 @@ function StrategyViewer({ strategy }) {
         </StrategySection>
       )}
 
-      {budgetEntries.length > 0 && (
-        <StrategySection icon={DollarSign} title="Budget Allocation">
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {budgetEntries.map(([channel, pct]) => (
-              <div key={channel}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 12, color: "var(--color-input-text)" }}>{channel}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--color-primary, #166534)" }}>{pct}</span>
+      {s.kpis?.length > 0 && (
+        <StrategySection icon={TrendingUp} title={`KPIs (${s.kpis.length})`} isOpen={openSection === "kpis"} onToggle={() => toggle("kpis")}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+            {s.kpis.map((k, i) => (
+              <div key={i} style={{
+                border: "1px solid var(--color-card-border)", borderRadius: 10,
+                padding: "12px 14px", backgroundColor: "var(--color-page-bg)",
+                display: "flex", flexDirection: "column", gap: 8,
+              }}>
+                {/* Header: number badge + sparkline + spark icon */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
+                  <span style={{
+                    fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.06em",
+                    color: "var(--color-accent)",
+                    backgroundColor: "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.1)",
+                    padding: "2px 7px", borderRadius: 4, flexShrink: 0,
+                  }}>
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <Sparkles size={12} style={{ color: "var(--color-accent)", opacity: 0.55, flexShrink: 0 }} />
                 </div>
-                <div style={{ height: 5, borderRadius: 10, background: "var(--color-border, #e5e7eb)", overflow: "hidden" }}>
-                  <div style={{ width: pct, height: "100%", background: "var(--color-primary, #166534)", borderRadius: 10, transition: "width 0.5s ease" }} />
-                </div>
+                {/* KPI text */}
+                <p style={{ fontSize: "0.78rem", color: "var(--color-input-text)", lineHeight: 1.6, margin: 0, flex: 1 }}>{k}</p>
+                {/* Target bar — only shown when KPI text contains a % value */}
+                <KpiTargetBar text={k} />
               </div>
             ))}
           </div>
-        </StrategySection>
-      )}
-
-      {s.kpis?.length > 0 && (
-        <StrategySection icon={TrendingUp} title={`KPIs (${s.kpis.length})`}>
-          <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 6 }}>
-            {s.kpis.map((k, i) => (
-              <li key={i} style={{ fontSize: 12, color: "var(--color-input-text)", lineHeight: 1.6 }}>{k}</li>
-            ))}
-          </ul>
         </StrategySection>
       )}
     </div>
@@ -538,160 +545,511 @@ function VerdictPanel({ adId, onSubmitted }) {
   );
 }
 
-// ─── Minor Edit panel ──────────────────────────────────────────────────────────
-//
-// Shows a dropdown of editable top-level strategy fields.
-// On save → calls adsAPI.minorEditStrategy(adId, { field, old_value, new_value })
-// The backend is expected to persist the patch and append a system audit message:
-//   "executive_summary changed from '<old>' to '<new>'"
-//
-// If adsAPI.minorEditStrategy is not yet wired, callers can temporarily stub it as:
-//   adsAPI.minorEditStrategy = (id, payload) => adsAPI.createReview(id, { review_type: "minor_edit", ...payload })
-
-const EDITABLE_FIELDS = [
-  { key: "executive_summary",       label: "Executive Summary",    type: "textarea" },
-  { key: "messaging.core_message",  label: "Core Message",         type: "textarea" },
-  { key: "messaging.tone",          label: "Messaging Tone",       type: "text"     },
-];
-
 /** Safely reads a dot-path like "messaging.core_message" from an object */
 function getNestedValue(obj, path) {
   return path.split(".").reduce((acc, k) => (acc != null ? acc[k] : undefined), obj) ?? "";
 }
 
-function MinorEditPanel({ adId, strategy, onEdited }) {
-  const [selectedField, setSelectedField] = useState(EDITABLE_FIELDS[0].key);
-  const [newValue,      setNewValue]      = useState("");
-  const [loading,       setLoading]       = useState(false);
-  const [error,         setError]         = useState(null);
-  const [success,       setSuccess]       = useState(false);
+// ─── Protocol document preview modal ─────────────────────────────────────────
 
-  // When the dropdown changes, seed the textarea with the current value
-  const handleFieldChange = (fieldKey) => {
-    setSelectedField(fieldKey);
-    setNewValue(getNestedValue(strategy, fieldKey));
-    setError(null);
-    setSuccess(false);
+function extFromPath(p) {
+  if (!p) return null;
+  const parts = p.split("/").pop().split(".");
+  return parts.length > 1 ? parts.pop().toLowerCase() : null;
+}
+
+function DocPreviewModal({ doc, adId, onClose }) {
+  const ext  = extFromPath(doc.file_path);
+  const mode = !ext ? "download" : ext === "pdf" ? "pdf" : ["txt", "md"].includes(ext) ? "text" : "download";
+  const url  = adsAPI.getDocFileUrl(adId, doc.id);
+
+  const [textContent, setTextContent] = useState(null);
+  const [textError,   setTextError]   = useState(false);
+
+  useEffect(() => {
+    if (mode !== "text") return;
+    fetch(url)
+      .then((r) => { if (!r.ok) throw new Error(); return r.text(); })
+      .then(setTextContent)
+      .catch(() => setTextError(true));
+  }, [url, mode]);
+
+  return (
+    <div
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      style={{ position: "fixed", inset: 0, zIndex: 50, backgroundColor: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}
+    >
+      <div style={{ backgroundColor: "var(--color-card-bg)", border: "1px solid var(--color-card-border)", borderRadius: 14, width: "100%", maxWidth: 860, maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid var(--color-card-border)", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 7, flexShrink: 0, backgroundColor: "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.12)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <FileText size={15} style={{ color: "var(--color-accent)" }} />
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <p style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--color-input-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.title}</p>
+              <p style={{ fontSize: "0.72rem", color: "var(--color-sidebar-text)" }}>
+                {doc.file_path?.split("/").pop()}{ext ? ` · ${ext.toUpperCase()}` : ""}{doc.doc_type ? ` · ${doc.doc_type.replace(/_/g, " ")}` : ""}
+              </p>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, marginLeft: 12 }}>
+            {doc.file_path && (
+              <a href={url} download onClick={(e) => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 7, fontSize: "0.78rem", fontWeight: 500, cursor: "pointer", textDecoration: "none", border: "1px solid var(--color-card-border)", backgroundColor: "var(--color-input-bg)", color: "var(--color-input-text)" }}>
+                <Download size={13} /> Download
+              </a>
+            )}
+            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", borderRadius: 6, color: "var(--color-sidebar-text)" }}>
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflow: "hidden", position: "relative", minHeight: 560 }}>
+          {mode === "pdf" && (
+            <iframe src={url} title={doc.title} style={{ width: "100%", height: "100%", border: "none", display: "block", minHeight: 560 }} />
+          )}
+          {mode === "text" && (
+            <div style={{ height: "100%", overflowY: "auto", padding: "20px 24px" }}>
+              {textError
+                ? <p style={{ color: "#ef4444", fontSize: "0.875rem" }}>Failed to load file content.</p>
+                : textContent === null
+                  ? <p style={{ color: "var(--color-sidebar-text)", fontSize: "0.875rem" }}>Loading…</p>
+                  : <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: "0.82rem", lineHeight: 1.7, color: "var(--color-input-text)", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{textContent}</pre>
+              }
+            </div>
+          )}
+          {mode === "download" && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: "48px 24px", textAlign: "center" }}>
+              <FileText size={40} style={{ color: "var(--color-sidebar-text)", opacity: 0.5 }} />
+              <p style={{ color: "var(--color-input-text)", fontWeight: 600, fontSize: "0.95rem" }}>Preview not available for {ext ? ext.toUpperCase() : "this file type"}</p>
+              <p style={{ color: "var(--color-sidebar-text)", fontSize: "0.82rem", maxWidth: 340 }}>Download the file to view it in your local application.</p>
+              {doc.file_path && (
+                <a href={url} download style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 18px", borderRadius: 8, fontSize: "0.85rem", fontWeight: 600, cursor: "pointer", textDecoration: "none", backgroundColor: "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.1)", border: "1px solid var(--color-accent)", color: "var(--color-accent)" }}>
+                  <Download size={15} /> Download {ext?.toUpperCase() ?? "File"}
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Budget donut chart ────────────────────────────────────────────────────────
+
+const DONUT_PALETTE = [
+  "var(--color-accent)", "#6366f1", "#f59e0b", "#ec4899",
+  "#14b8a6", "#8b5cf6", "#f97316", "#0ea5e9",
+];
+
+// Parse the first percentage from a KPI string, e.g. "Achieve 15% CTR" → 15
+function parseKpiPercent(text) {
+  const m = text.match(/(\d+(?:\.\d+)?)\s*%/);
+  return m ? Math.min(100, parseFloat(m[1])) : null;
+}
+
+// Data-driven target bar — only renders when the KPI text contains a percentage.
+// The bar width reflects the actual target value; nothing is made up.
+function KpiTargetBar({ text }) {
+  const pct = parseKpiPercent(text);
+  if (pct === null) return null;
+  return (
+    <div style={{ marginTop: 2 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <span style={{ fontSize: "0.58rem", fontWeight: 700, letterSpacing: "0.07em", color: "var(--color-sidebar-text)" }}>TARGET</span>
+        <span style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--color-accent)" }}>{pct}%</span>
+      </div>
+      <div style={{ position: "relative", height: 5, borderRadius: 999, backgroundColor: "var(--color-card-border)" }}>
+        <div style={{
+          position: "absolute", inset: "0 auto 0 0", width: `${pct}%`,
+          borderRadius: 999,
+          background: "linear-gradient(90deg, rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.4), rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.85))",
+        }} />
+      </div>
+    </div>
+  );
+}
+
+function DonutChart({ slices, size = 150, thickness = 26 }) {
+  const r    = (size - thickness) / 2;
+  const circ = 2 * Math.PI * r;
+  const cx   = size / 2, cy = size / 2;
+  let acc = 0;
+  return (
+    <svg width={size} height={size}>
+      {/* track */}
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--color-card-border)" strokeWidth={thickness} />
+      {slices.map((slice, i) => {
+        const arc    = (slice.pct / 100) * circ;
+        const offset = -(acc / 100) * circ;
+        acc += slice.pct;
+        return (
+          <circle
+            key={i} cx={cx} cy={cy} r={r}
+            fill="none" stroke={slice.color} strokeWidth={thickness}
+            strokeDasharray={`${arc} ${circ}`}
+            strokeDashoffset={offset}
+            transform={`rotate(-90 ${cx} ${cy})`}
+            style={{ transition: "stroke-dasharray 0.4s ease" }}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+function BudgetDonut({ strategy }) {
+  if (!strategy?.budget_allocation) return null;
+  const entries = Object.entries(strategy.budget_allocation);
+  if (!entries.length) return null;
+
+  const slices = entries.map(([label, val], i) => ({
+    label,
+    pct: parseFloat(String(val)) || 0,
+    color: DONUT_PALETTE[i % DONUT_PALETTE.length],
+  }));
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 20, padding: "4px 0" }}>
+      {/* Ring */}
+      <div style={{ position: "relative", flexShrink: 0 }}>
+        <DonutChart slices={slices} />
+        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+          <DollarSign size={16} style={{ color: "var(--color-accent)" }} />
+        </div>
+      </div>
+      {/* Legend */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 7 }}>
+        {slices.map((s) => (
+          <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 9, height: 9, borderRadius: 2, backgroundColor: s.color, flexShrink: 0 }} />
+            <p style={{ flex: 1, fontSize: "0.78rem", color: "var(--color-input-text)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>
+              {s.label}
+            </p>
+            <p style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--color-input-text)", flexShrink: 0, margin: 0 }}>
+              {s.pct}%
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Inline editable text field (transparent-border, auto-resize) ──────────────
+
+function InlineField({ value, onChange, multiline = true, placeholder = "", extraStyle = {} }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!ref.current || !multiline) return;
+    ref.current.style.height = "auto";
+    ref.current.style.height = ref.current.scrollHeight + "px";
+  }, [value, multiline]);
+
+  const base = {
+    width: "100%", background: "transparent",
+    border: "1px solid transparent", borderRadius: 6,
+    padding: "3px 6px", outline: "none",
+    color: "var(--color-input-text)", fontFamily: "inherit",
+    fontSize: 13, lineHeight: 1.7, boxSizing: "border-box",
+    transition: "border-color 0.15s",
+    ...extraStyle,
   };
 
-  // Initialise on mount
+  const onFocus = (e) => { e.target.style.borderColor = "var(--color-accent)"; };
+  const onBlur  = (e) => { e.target.style.borderColor = "transparent"; };
+
+  if (!multiline) return (
+    <input
+      type="text" value={value} placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+      onFocus={onFocus} onBlur={onBlur}
+      style={base}
+    />
+  );
+
+  return (
+    <textarea
+      ref={ref} rows={1} value={value} placeholder={placeholder}
+      onChange={(e) => {
+        onChange(e.target.value);
+        e.target.style.height = "auto";
+        e.target.style.height = e.target.scrollHeight + "px";
+      }}
+      onFocus={onFocus} onBlur={onBlur}
+      style={{ ...base, resize: "none", overflow: "hidden" }}
+    />
+  );
+}
+
+// ─── Editable strategy viewer (reviewer-only) ─────────────────────────────────
+//
+// Fields in executive_summary, target_audience, and messaging are editable inline.
+// Each collapsible section has a "Save Changes" button that activates when its
+// fields are dirty. Saving calls adsAPI.minorEditStrategy per changed field and
+// logs each change to the audit trail.
+
+function EditableStrategyViewer({ strategy, adId, onSaved }) {
+  const [s, setS]               = useState(strategy ?? {});
+  const [dirty, setDirty]       = useState({});
+  const [saving, setSaving]     = useState({});
+  const [saveErr, setSaveErr]   = useState({});
+  const [saveOk, setSaveOk]     = useState({});
+  const [openSection, setOpenSection] = useState(null);
+  const toggle = (key) => setOpenSection((prev) => prev === key ? null : key);
+
+  const updateKpi = (index, value) => {
+    const newKpis = [...(s.kpis ?? [])];
+    newKpis[index] = value;
+    setS((prev) => ({ ...prev, kpis: newKpis }));
+    setDirty((prev) => ({ ...prev, kpis: { kpis: { old: JSON.stringify(strategy?.kpis ?? []), new: JSON.stringify(newKpis) } } }));
+    setSaveOk((prev) => ({ ...prev, kpis: false }));
+  };
+
+  const updateContentItem = (index, field, value) => {
+    const newPlan = (s.content_plan ?? []).map((item, i) => i === index ? { ...item, [field]: value } : item);
+    setS((prev) => ({ ...prev, content_plan: newPlan }));
+    setDirty((prev) => ({ ...prev, content: { content_plan: { old: JSON.stringify(strategy?.content_plan ?? []), new: JSON.stringify(newPlan) } } }));
+    setSaveOk((prev) => ({ ...prev, content: false }));
+  };
+
   useEffect(() => {
-    setNewValue(getNestedValue(strategy, EDITABLE_FIELDS[0].key));
+    setS(strategy ?? {});
+    setDirty({});
+    setSaveOk({});
   }, [strategy]);
 
-  const currentDef   = EDITABLE_FIELDS.find((f) => f.key === selectedField);
-  const currentLabel = currentDef?.label ?? selectedField;
-  const oldValue     = getNestedValue(strategy, selectedField);
+  const update = (path, value, sectionKey) => {
+    setS((prev) => {
+      const parts = path.split(".");
+      if (parts.length === 1) return { ...prev, [parts[0]]: value };
+      return { ...prev, [parts[0]]: { ...prev[parts[0]], [parts[1]]: value } };
+    });
+    setDirty((prev) => ({
+      ...prev,
+      [sectionKey]: {
+        ...(prev[sectionKey] ?? {}),
+        [path]: { old: String(getNestedValue(strategy, path)), new: value },
+      },
+    }));
+    setSaveOk((prev) => ({ ...prev, [sectionKey]: false }));
+  };
 
-  const save = async () => {
-    if (!newValue.trim()) { setError("New value cannot be empty."); return; }
-    if (newValue.trim() === String(oldValue).trim()) { setError("No changes detected."); return; }
-    setLoading(true); setError(null); setSuccess(false);
+  const isSectionDirty = (sectionKey) => {
+    const fields = dirty[sectionKey] ?? {};
+    return Object.values(fields).some((v) => v.new !== v.old);
+  };
+
+  const saveSection = async (sectionKey) => {
+    const fields = dirty[sectionKey] ?? {};
+    const changed = Object.entries(fields).filter(([, v]) => v.new !== v.old);
+    if (!changed.length) return;
+    setSaving((p) => ({ ...p, [sectionKey]: true }));
+    setSaveErr((p) => ({ ...p, [sectionKey]: null }));
     try {
-      await adsAPI.minorEditStrategy(adId, {
-        field:     selectedField,
-        old_value: String(oldValue),
-        new_value: newValue.trim(),
-      });
-      setSuccess(true);
-      onEdited();
+      for (const [field, { old: oldVal, new: newVal }] of changed) {
+        await adsAPI.minorEditStrategy(adId, { field, old_value: oldVal, new_value: newVal });
+      }
+      setDirty((p) => ({ ...p, [sectionKey]: {} }));
+      setSaveOk((p) => ({ ...p, [sectionKey]: true }));
+      if (onSaved) onSaved();
     } catch (err) {
-      setError(err.message || "Failed to save edit.");
+      setSaveErr((p) => ({ ...p, [sectionKey]: err.message || "Failed to save." }));
     } finally {
-      setLoading(false);
+      setSaving((p) => ({ ...p, [sectionKey]: false }));
     }
   };
 
-  const labelStyle = { fontSize: "0.75rem", fontWeight: 600, color: "var(--color-sidebar-text)", display: "block", marginBottom: 6 };
-  const inputBase  = {
-    width: "100%", padding: "8px 12px", borderRadius: 8, fontSize: "0.85rem",
-    border: "1px solid var(--color-card-border)", backgroundColor: "var(--color-input-bg)",
-    color: "var(--color-input-text)", outline: "none", boxSizing: "border-box",
-  };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-
-      {/* Info callout */}
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 14px", borderRadius: 8, backgroundColor: "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.06)", border: "1px solid rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.2)" }}>
-        <Pencil size={13} style={{ color: "var(--color-accent)", flexShrink: 0, marginTop: 2 }} />
-        <p style={{ fontSize: "0.78rem", color: "var(--color-sidebar-text)", lineHeight: 1.5 }}>
-          Make a targeted edit to a single strategy field. The change and what it replaced will be recorded automatically in the audit trail as a system message.
-        </p>
-      </div>
-
-      {/* Field selector */}
-      <div>
-        <label style={labelStyle}>Field to Edit</label>
-        <select
-          style={inputBase}
-          value={selectedField}
-          onChange={(e) => handleFieldChange(e.target.value)}
-        >
-          {EDITABLE_FIELDS.map((f) => (
-            <option key={f.key} value={f.key}>{f.label}</option>
-          ))}
-        </select>
-      </div>
-
-      {/* Current value (read-only preview) */}
-      <div>
-        <label style={labelStyle}>Current Value</label>
-        <div style={{
-          padding: "10px 12px", borderRadius: 8, fontSize: "0.82rem",
-          border: "1px solid var(--color-card-border)",
-          backgroundColor: "var(--color-page-bg)",
-          color: "var(--color-sidebar-text)",
-          lineHeight: 1.6, whiteSpace: "pre-wrap",
-          maxHeight: 120, overflowY: "auto",
-        }}>
-          {String(oldValue) || <em>empty</em>}
-        </div>
-      </div>
-
-      {/* New value input */}
-      <div>
-        <label style={labelStyle}>New Value *</label>
-        {currentDef?.type === "textarea" ? (
-          <textarea
-            style={{ ...inputBase, resize: "vertical", minHeight: 100, fontFamily: "inherit" }}
-            value={newValue}
-            onChange={(e) => setNewValue(e.target.value)}
-            placeholder={`Enter new ${currentLabel}…`}
-          />
-        ) : (
-          <input
-            type="text"
-            style={inputBase}
-            value={newValue}
-            onChange={(e) => setNewValue(e.target.value)}
-            placeholder={`Enter new ${currentLabel}…`}
-          />
+  function SaveBar({ sectionKey }) {
+    const isDirty  = isSectionDirty(sectionKey);
+    const isSaving = saving[sectionKey];
+    const err      = saveErr[sectionKey];
+    const ok       = saveOk[sectionKey];
+    if (!isDirty && !err && !ok) return null;
+    return (
+      <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        {isDirty && (
+          <button
+            onClick={() => saveSection(sectionKey)}
+            disabled={isSaving}
+            className="btn--accent"
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "0.78rem", padding: "6px 14px", opacity: isSaving ? 0.7 : 1 }}
+          >
+            {isSaving
+              ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} />
+              : <CheckCircle2 size={12} />}
+            {isSaving ? "Saving…" : "Save Changes"}
+          </button>
+        )}
+        {err && <p style={{ fontSize: "0.75rem", color: "#ef4444" }}>{err}</p>}
+        {ok && !isDirty && (
+          <span style={{ fontSize: "0.75rem", color: "#22c55e", display: "flex", alignItems: "center", gap: 4 }}>
+            <CheckCircle size={12} /> Saved · recorded in audit trail
+          </span>
         )}
       </div>
+    );
+  }
 
-      {error && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 8, backgroundColor: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)" }}>
-          <AlertCircle size={14} style={{ color: "#ef4444", flexShrink: 0 }} />
-          <p style={{ fontSize: "0.82rem", color: "#ef4444" }}>{error}</p>
-        </div>
-      )}
-      {success && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 8, backgroundColor: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.25)" }}>
-          <CheckCircle size={14} style={{ color: "#22c55e", flexShrink: 0 }} />
-          <p style={{ fontSize: "0.82rem", color: "#22c55e" }}>Edit saved and recorded in audit trail.</p>
-        </div>
+  if (!strategy) return (
+    <p style={{ fontSize: 13, color: "var(--color-sidebar-text)" }}>No strategy generated yet.</p>
+  );
+
+  return (
+    <div>
+      {/* Subtle hint */}
+      <p style={{ fontSize: "0.72rem", color: "var(--color-sidebar-text)", marginBottom: 14, fontStyle: "italic" }}>
+        Click any text to edit inline — a Save button appears when you make changes.
+      </p>
+
+      <StrategySection icon={Megaphone} title="Executive Summary" isOpen={openSection === "summary"} onToggle={() => toggle("summary")}>
+        <InlineField
+          value={s.executive_summary ?? ""}
+          onChange={(v) => update("executive_summary", v, "summary")}
+          placeholder="Executive summary…"
+        />
+        <SaveBar sectionKey="summary" />
+      </StrategySection>
+
+      {s.target_audience && (
+        <StrategySection icon={Users} title="Target Audience" isOpen={openSection === "audience"} onToggle={() => toggle("audience")}>
+          {[
+            ["PRIMARY",      "target_audience.primary"],
+            ["SECONDARY",    "target_audience.secondary"],
+            ["DEMOGRAPHICS", "target_audience.demographics"],
+          ]
+            .filter(([, path]) => getNestedValue(s, path))
+            .map(([label, path]) => (
+              <div key={label} style={{ marginBottom: 12 }}>
+                <p style={{ fontWeight: 700, fontSize: 11, letterSpacing: "0.06em", marginBottom: 4, color: "var(--color-sidebar-text)" }}>{label}</p>
+                <InlineField
+                  value={String(getNestedValue(s, path))}
+                  onChange={(v) => update(path, v, "audience")}
+                />
+              </div>
+            ))}
+          <SaveBar sectionKey="audience" />
+        </StrategySection>
       )}
 
-      <button
-        onClick={save}
-        disabled={loading}
-        className="btn--accent"
-        style={{ display: "inline-flex", alignItems: "center", gap: 8, opacity: loading ? 0.7 : 1 }}
-      >
-        {loading ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Pencil size={14} />}
-        Save Minor Edit
-      </button>
+      {s.messaging && (
+        <StrategySection icon={MessageSquare} title="Messaging" isOpen={openSection === "messaging"} onToggle={() => toggle("messaging")}>
+          {s.messaging.core_message !== undefined && (
+            <div style={{
+              background: "var(--color-primary-light, #dcfce7)",
+              borderLeft: "3px solid var(--color-primary, #166534)",
+              padding: "10px 14px", borderRadius: 6, marginBottom: 14,
+            }}>
+              <InlineField
+                value={s.messaging.core_message ?? ""}
+                onChange={(v) => update("messaging.core_message", v, "messaging")}
+                placeholder="Core message…"
+                extraStyle={{ fontStyle: "italic", color: "var(--color-primary, #166534)", fontWeight: 500 }}
+              />
+            </div>
+          )}
+          {s.messaging.tone !== undefined && (
+            <div style={{ marginBottom: 12 }}>
+              <p style={{ fontWeight: 700, fontSize: 11, letterSpacing: "0.06em", marginBottom: 4, color: "var(--color-sidebar-text)" }}>TONE</p>
+              <InlineField
+                value={s.messaging.tone ?? ""}
+                onChange={(v) => update("messaging.tone", v, "messaging")}
+                multiline={false}
+              />
+            </div>
+          )}
+          {s.messaging.key_differentiators?.length > 0 && (
+            <div>
+              <p style={{ fontWeight: 700, fontSize: 11, letterSpacing: "0.06em", marginBottom: 8, color: "var(--color-sidebar-text)" }}>KEY DIFFERENTIATORS</p>
+              <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 6 }}>
+                {s.messaging.key_differentiators.map((d, i) => (
+                  <li key={i} style={{ color: "var(--color-input-text)", lineHeight: 1.6 }}>{d}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <SaveBar sectionKey="messaging" />
+        </StrategySection>
+      )}
+
+      {s.content_plan?.length > 0 && (
+        <StrategySection icon={List} title={`Content Plan (${s.content_plan.length} items)`} isOpen={openSection === "content"} onToggle={() => toggle("content")}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {s.content_plan.map((item, i) => (
+              <div key={i} style={{ border: "1px solid var(--color-border, #e5e7eb)", borderRadius: 8, padding: "10px 14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <Tag>{item.channel}</Tag>
+                  <InlineField
+                    value={item.format ?? ""}
+                    onChange={(v) => updateContentItem(i, "format", v)}
+                    multiline={false}
+                    placeholder="Format…"
+                    extraStyle={{ fontSize: 11, color: "var(--color-sidebar-text)" }}
+                  />
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginBottom: 4 }}>
+                  <strong style={{ fontSize: 12, color: "var(--color-sidebar-text)", flexShrink: 0 }}>Frequency:</strong>
+                  <InlineField
+                    value={item.frequency ?? ""}
+                    onChange={(v) => updateContentItem(i, "frequency", v)}
+                    multiline={false}
+                    placeholder="Frequency…"
+                    extraStyle={{ fontSize: 12 }}
+                  />
+                </div>
+                <InlineField
+                  value={item.example ?? ""}
+                  onChange={(v) => updateContentItem(i, "example", v)}
+                  placeholder="Example content…"
+                  extraStyle={{ fontSize: 12 }}
+                />
+              </div>
+            ))}
+          </div>
+          <SaveBar sectionKey="content" />
+        </StrategySection>
+      )}
+
+      {s.kpis?.length > 0 && (
+        <StrategySection icon={TrendingUp} title={`KPIs (${s.kpis.length})`} isOpen={openSection === "kpis"} onToggle={() => toggle("kpis")}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+            {s.kpis.map((k, i) => (
+              <div key={i} style={{
+                border: "1px solid var(--color-card-border)", borderRadius: 10,
+                padding: "12px 14px", backgroundColor: "var(--color-page-bg)",
+                display: "flex", flexDirection: "column", gap: 8,
+              }}>
+                {/* Header: number badge + spark icon */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{
+                    fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.06em",
+                    color: "var(--color-accent)",
+                    backgroundColor: "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.1)",
+                    padding: "2px 7px", borderRadius: 4, flexShrink: 0,
+                  }}>
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <Sparkles size={12} style={{ color: "var(--color-accent)", opacity: 0.55, flexShrink: 0 }} />
+                </div>
+                {/* Editable KPI text */}
+                <InlineField
+                  value={k}
+                  onChange={(v) => updateKpi(i, v)}
+                  multiline={false}
+                  extraStyle={{ fontSize: "0.78rem", lineHeight: 1.6, flex: 1 }}
+                />
+                {/* Target bar — only shown when KPI text contains a % value */}
+                <KpiTargetBar text={k} />
+              </div>
+            ))}
+          </div>
+          <SaveBar sectionKey="kpis" />
+        </StrategySection>
+      )}
     </div>
   );
 }
@@ -860,7 +1218,6 @@ function ReviewCard({ review }) {
 
 const ACTION_TABS = [
   { key: "verdict",    label: "Verdict",     icon: CheckCircle },
-  { key: "minor_edit", label: "Minor Edit",  icon: Pencil      },
   { key: "restrategy", label: "Re-Strategy", icon: Sparkles    },
 ];
 
@@ -888,18 +1245,68 @@ function ActionTabs({ active, onChange }) {
   );
 }
 
+// ─── Page-level tab bar ────────────────────────────────────────────────────────
+
+const PAGE_TABS = [
+  { key: "overview",      label: "Overview",      icon: LayoutDashboard },
+  { key: "strategy",      label: "Strategy",      icon: Layers          },
+  { key: "questionnaire", label: "Questionnaire", icon: ClipboardList   },
+  { key: "review",        label: "Review",        icon: ClipboardCheck  },
+  { key: "history",       label: "History",       icon: History         },
+];
+
+function PageTabBar({ active, onChange, showQuestionnaireDot }) {
+  return (
+    <div style={{
+      display: "flex", borderBottom: "1px solid var(--color-card-border)",
+      marginBottom: 28, gap: 0, overflowX: "auto",
+    }}>
+      {PAGE_TABS.map(({ key, label, icon: Icon }) => {
+        const isActive = active === key;
+        const hasDot   = key === "questionnaire" && showQuestionnaireDot;
+        return (
+          <button
+            key={key}
+            onClick={() => onChange(key)}
+            style={{
+              display: "flex", alignItems: "center", gap: 7, position: "relative",
+              padding: "11px 18px", border: "none", background: "none",
+              cursor: "pointer", fontSize: "0.82rem", fontWeight: isActive ? 700 : 500,
+              color: isActive ? "var(--color-accent)" : "var(--color-sidebar-text)",
+              borderBottom: isActive ? "2px solid var(--color-accent)" : "2px solid transparent",
+              marginBottom: -1, transition: "color 0.15s", whiteSpace: "nowrap", flexShrink: 0,
+            }}
+          >
+            <Icon size={14} />
+            {label}
+            {hasDot && (
+              <span style={{
+                width: 7, height: 7, borderRadius: "50%",
+                backgroundColor: "#f59e0b",
+                display: "inline-block", marginLeft: 2, flexShrink: 0,
+              }} />
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Main exported component ───────────────────────────────────────────────────
 
 export default function ReviewerCampaignDetail() {
   const { id }    = useParams();
   const navigate  = useNavigate();
 
-  const [ad,        setAd]        = useState(null);
-  const [reviews,   setReviews]   = useState([]);
-  const [protoDocs, setProtoDocs] = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState(null);
-  const [activeTab, setActiveTab] = useState("verdict");
+  const [ad,         setAd]         = useState(null);
+  const [reviews,    setReviews]    = useState([]);
+  const [protoDocs,  setProtoDocs]  = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState(null);
+  const [pageTab,    setPageTab]    = useState("overview");
+  const [actionTab,  setActionTab]  = useState("verdict");
+  const [previewDoc, setPreviewDoc] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -924,7 +1331,7 @@ export default function ReviewerCampaignDetail() {
 
   if (loading) return (
     <PageWithSidebar>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "40px 0", color: "var(--color-sidebar-text)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "60px 0", color: "var(--color-sidebar-text)" }}>
         <Loader2 size={18} style={{ animation: "spin 1s linear infinite" }} />
         <p>Loading campaign…</p>
       </div>
@@ -933,7 +1340,7 @@ export default function ReviewerCampaignDetail() {
 
   if (error || !ad) return (
     <PageWithSidebar>
-      <div style={{ padding: "40px 0", textAlign: "center" }}>
+      <div style={{ padding: "60px 0", textAlign: "center" }}>
         <AlertCircle size={32} style={{ color: "#ef4444", margin: "0 auto 12px" }} />
         <p style={{ color: "var(--color-input-text)", fontWeight: 600 }}>Campaign not found</p>
         <p style={{ color: "var(--color-sidebar-text)", fontSize: "0.85rem", marginTop: 4 }}>{error}</p>
@@ -942,136 +1349,279 @@ export default function ReviewerCampaignDetail() {
     </PageWithSidebar>
   );
 
-  const hasStrategy = statusIndex(ad.status) >= statusIndex("strategy_created");
-  const canAct      = ["under_review", "strategy_created", "ethics_review"].includes(ad.status);
+  const hasStrategy   = statusIndex(ad.status) >= statusIndex("strategy_created");
+  const canAct        = ["under_review", "strategy_created", "ethics_review"].includes(ad.status);
+  const qualifies     = needsQuestionnaire(ad, protoDocs);
+  const questEmpty    = !(ad.questionnaire?.questions?.length > 0);
+  const showQDot      = qualifies && questEmpty;
 
   return (
+    <>
     <PageWithSidebar>
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 
-      {/* ── Header ── */}
-      <div className="page-header" style={{ display: "flex", alignItems: "center", gap: 16 }}>
-        <button
-          onClick={() => navigate(-1)}
-          style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "7px 14px", border: "1px solid var(--color-border, #e5e7eb)",
-            borderRadius: 8, background: "transparent", cursor: "pointer",
-            fontSize: 13, color: "var(--color-input-text)", whiteSpace: "nowrap", flexShrink: 0,
-          }}
-        >
-          <ArrowLeft size={15} /> Back
-        </button>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h1 className="page-header__title">{ad.title}</h1>
-          <p className="page-header__subtitle">Campaign review</p>
+      {/* ── Back button ── */}
+      <button
+        onClick={() => navigate(-1)}
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 20,
+          padding: "6px 12px", border: "1px solid var(--color-card-border)",
+          borderRadius: 8, background: "transparent", cursor: "pointer",
+          fontSize: "0.8rem", color: "var(--color-sidebar-text)",
+        }}
+      >
+        <ArrowLeft size={14} /> Back
+      </button>
+
+      {/* ── Hero card ── */}
+      <div style={{
+        borderRadius: 16,
+        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #0f2027 100%)",
+        padding: "32px 36px", marginBottom: 32, position: "relative", overflow: "hidden",
+      }}>
+        {/* decorative blobs */}
+        <div style={{ position: "absolute", top: -40, right: -40, width: 180, height: 180, borderRadius: "50%", background: "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.08)", pointerEvents: "none" }} />
+        <div style={{ position: "absolute", bottom: -30, left: 120, width: 120, height: 120, borderRadius: "50%", background: "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.05)", pointerEvents: "none" }} />
+
+        {/* title row */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 20, position: "relative" }}>
+          <div style={{ minWidth: 0 }}>
+            <p style={{ fontSize: "0.7rem", fontWeight: 600, letterSpacing: "0.1em", color: "rgba(255,255,255,0.4)", textTransform: "uppercase", marginBottom: 6 }}>
+              Campaign Review
+            </p>
+            <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#fff", lineHeight: 1.3, margin: 0 }}>
+              {ad.title}
+            </h1>
+          </div>
+          <CampaignStatusBadge status={ad.status} />
         </div>
-        <CampaignStatusBadge status={ad.status} />
-      </div>
 
-      {/* ── Meta chips ── */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
-        <div className="info-tile" style={{ minWidth: 120 }}>
-          <p className="info-tile__label">Budget</p>
-          <p className="info-tile__value">${ad.budget?.toLocaleString() || "N/A"}</p>
-        </div>
-        <div className="info-tile" style={{ flex: 1 }}>
-          <p className="info-tile__label">Platforms</p>
-          <p className="info-tile__value" style={{ fontSize: 13 }}>{ad.platforms?.join(" · ") || "None"}</p>
-        </div>
-        <div className="info-tile" style={{ minWidth: 100 }}>
-          <p className="info-tile__label">Ad Type</p>
-          <p className="info-tile__value">{ad.ad_type?.join(", ") || "—"}</p>
-        </div>
-      </div>
-
-      {/* ── Status timeline ── */}
-      <div style={{ marginBottom: 24 }}>
-        <SectionCard title="Campaign Progress">
-          <StatusTimeline status={ad.status} />
-        </SectionCard>
-      </div>
-
-      {/* ── Two-column layout ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 24, alignItems: "start" }}>
-
-        {/* Left: full strategy */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-          <SectionCard title="AI Generated Strategy" subtitle="Expand each section to review">
-            {hasStrategy
-              ? <StrategyViewer strategy={ad.strategy_json} />
-              : <p style={{ fontSize: 13, color: "var(--color-sidebar-text)" }}>Strategy not yet generated for this campaign.</p>
-            }
-          </SectionCard>
-
-          {/* Questionnaire (if campaign has one) */}
-          {needsQuestionnaire(ad, protoDocs) && (
-            <SectionCard
-              title="Questionnaire"
-              subtitle={`${ad.questionnaire?.questions?.length ?? 0} question${(ad.questionnaire?.questions?.length ?? 0) !== 1 ? "s" : ""} · ${ad.campaign_category ? ad.campaign_category.replace("_", " ") : "hiring / recruitment"} campaign`}
-            >
-              <QuestionnaireViewer questionnaire={ad.questionnaire} adId={id} onGenerated={handleActionDone} />
-            </SectionCard>
+        {/* stats row */}
+        <div style={{ display: "flex", gap: 28, flexWrap: "wrap", position: "relative" }}>
+          {ad.budget && (
+            <div>
+              <p style={{ fontSize: "0.65rem", color: "rgba(255,255,255,0.4)", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 3 }}>Budget</p>
+              <p style={{ fontSize: "0.95rem", fontWeight: 700, color: "#fff" }}>${ad.budget?.toLocaleString()}</p>
+            </div>
           )}
-
-          {/* Review history */}
-          {reviews.length > 0 && (
-            <SectionCard
-              title="Audit Trail"
-              subtitle={`${reviews.length} entr${reviews.length !== 1 ? "ies" : "y"}`}
-            >
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {reviews.map((r) => <ReviewCard key={r.id} review={r} />)}
+          {ad.duration && (
+            <div>
+              <p style={{ fontSize: "0.65rem", color: "rgba(255,255,255,0.4)", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 3 }}>Duration</p>
+              <p style={{ fontSize: "0.95rem", fontWeight: 700, color: "#fff" }}>{ad.duration}</p>
+            </div>
+          )}
+          {ad.platforms?.length > 0 && (
+            <div>
+              <p style={{ fontSize: "0.65rem", color: "rgba(255,255,255,0.4)", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 3 }}>Platforms</p>
+              <p style={{ fontSize: "0.95rem", fontWeight: 700, color: "#fff" }}>{ad.platforms.join(" · ")}</p>
+            </div>
+          )}
+          {ad.ad_type?.length > 0 && (
+            <div>
+              <p style={{ fontSize: "0.65rem", color: "rgba(255,255,255,0.4)", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 3 }}>Type</p>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {ad.ad_type.map((t) => (
+                  <AdTypeChip key={t} type={t} />
+                ))}
               </div>
-            </SectionCard>
+            </div>
           )}
         </div>
-
-        {/* Right: sticky action column */}
-        <div style={{ position: "sticky", top: 24 }}>
-          <SectionCard title="Reviewer Actions">
-            {!canAct ? (
-              <p style={{ fontSize: "0.82rem", color: "var(--color-sidebar-text)" }}>
-                This campaign is currently <strong>{ad.status}</strong> and does not require reviewer action.
-              </p>
-            ) : (
-              <>
-                <ActionTabs active={activeTab} onChange={setActiveTab} />
-
-                {activeTab === "verdict" && (
-                  <VerdictPanel adId={id} onSubmitted={handleActionDone} />
-                )}
-
-                {activeTab === "minor_edit" && (
-                  hasStrategy
-                    ? <MinorEditPanel adId={id} strategy={ad.strategy_json} onEdited={handleActionDone} />
-                    : <p style={{ fontSize: "0.82rem", color: "var(--color-sidebar-text)" }}>Strategy must be generated before making edits.</p>
-                )}
-
-                {activeTab === "restrategy" && (
-                  hasStrategy
-                    ? <AIReStrategyPanel adId={id} onRewritten={handleActionDone} />
-                    : <p style={{ fontSize: "0.82rem", color: "var(--color-sidebar-text)" }}>Strategy must be generated before triggering a re-write.</p>
-                )}
-              </>
-            )}
-          </SectionCard>
-        </div>
-
       </div>
 
-      {/* Reload */}
-      <div style={{ paddingBottom: 32, paddingTop: 8, display: "flex", gap: 10 }}>
+      {/* ── Page tab navigation ── */}
+      <PageTabBar active={pageTab} onChange={setPageTab} showQuestionnaireDot={showQDot} />
+
+      {/* ── Tab content ── */}
+
+      {/* OVERVIEW */}
+      {pageTab === "overview" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+          <SectionCard title="Campaign Progress">
+            <StatusTimeline status={ad.status} />
+          </SectionCard>
+
+          {(() => {
+            const hasBudget = !!(ad.strategy_json?.budget_allocation && Object.keys(ad.strategy_json.budget_allocation).length > 0);
+            const hasDocs   = protoDocs.length > 0;
+            if (!hasDocs && !hasBudget) return null;
+            return (
+              <div style={{ display: "grid", gridTemplateColumns: hasDocs && hasBudget ? "1fr 1fr" : "1fr", gap: 16, alignItems: "start" }}>
+                {hasDocs && (
+                  <SectionCard title="Protocol Documents" subtitle={`${protoDocs.length} document${protoDocs.length !== 1 ? "s" : ""} attached`}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {protoDocs.map((doc) => (
+                        <div
+                          key={doc.id}
+                          onClick={() => doc.file_path && setPreviewDoc(doc)}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 12,
+                            padding: "10px 14px", borderRadius: 8,
+                            border: "1px solid var(--color-card-border)",
+                            backgroundColor: "var(--color-card-bg)",
+                            cursor: doc.file_path ? "pointer" : "default",
+                            transition: "border-color 0.15s",
+                          }}
+                          onMouseEnter={(e) => { if (doc.file_path) e.currentTarget.style.borderColor = "var(--color-accent)"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--color-card-border)"; }}
+                        >
+                          <FileText size={14} style={{ color: "var(--color-accent)", flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ fontSize: "0.83rem", fontWeight: 600, color: "var(--color-input-text)", margin: 0 }}>{doc.title}</p>
+                            {doc.doc_type && (
+                              <p style={{ fontSize: "0.7rem", color: "var(--color-sidebar-text)", marginTop: 2, textTransform: "capitalize" }}>{doc.doc_type.replace(/_/g, " ")}{doc.file_path && ` · ${doc.file_path.split("/").pop()}`}</p>
+                            )}
+                          </div>
+                          {doc.file_path && <Eye size={13} style={{ color: "var(--color-sidebar-text)", flexShrink: 0 }} />}
+                        </div>
+                      ))}
+                    </div>
+                  </SectionCard>
+                )}
+                {hasBudget && (
+                  <SectionCard title="Budget Distribution">
+                    <BudgetDonut strategy={ad.strategy_json} />
+                  </SectionCard>
+                )}
+              </div>
+            );
+          })()}
+
+          {qualifies && (
+            <div
+              onClick={() => setPageTab("questionnaire")}
+              style={{
+                display: "flex", alignItems: "center", gap: 14,
+                padding: "18px 22px", borderRadius: 12, cursor: "pointer",
+                border: questEmpty ? "1px solid rgba(245,158,11,0.4)" : "1px solid var(--color-card-border)",
+                backgroundColor: questEmpty ? "rgba(245,158,11,0.05)" : "var(--color-card-bg)",
+                transition: "border-color 0.15s",
+              }}
+            >
+              <div style={{
+                width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                backgroundColor: questEmpty ? "rgba(245,158,11,0.12)" : "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.1)",
+              }}>
+                <ClipboardList size={18} style={{ color: questEmpty ? "#f59e0b" : "var(--color-accent)" }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--color-input-text)", margin: 0 }}>
+                  Eligibility Questionnaire
+                  {questEmpty && <span style={{ marginLeft: 8, fontSize: "0.72rem", fontWeight: 600, color: "#f59e0b" }}>· Needs setup</span>}
+                </p>
+                <p style={{ fontSize: "0.75rem", color: "var(--color-sidebar-text)", marginTop: 3 }}>
+                  {questEmpty ? "No questions generated yet — click to set up" : `${ad.questionnaire.questions.length} question${ad.questionnaire.questions.length !== 1 ? "s" : ""} ready`}
+                </p>
+              </div>
+              <ArrowLeft size={14} style={{ color: "var(--color-sidebar-text)", transform: "rotate(180deg)" }} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* STRATEGY */}
+      {pageTab === "strategy" && (
+        <div>
+          {hasStrategy
+            ? <EditableStrategyViewer strategy={ad.strategy_json} adId={id} onSaved={handleActionDone} />
+            : (
+              <div style={{ textAlign: "center", padding: "48px 0" }}>
+                <Layers size={32} style={{ color: "var(--color-card-border)", margin: "0 auto 12px" }} />
+                <p style={{ color: "var(--color-sidebar-text)", fontSize: "0.9rem" }}>Strategy not yet generated for this campaign.</p>
+              </div>
+            )
+          }
+        </div>
+      )}
+
+      {/* QUESTIONNAIRE */}
+      {pageTab === "questionnaire" && (
+        <div>
+          {qualifies ? (
+            <>
+              <div style={{ marginBottom: 20 }}>
+                <h2 style={{ fontSize: "1rem", fontWeight: 700, color: "var(--color-input-text)", margin: 0 }}>
+                  Eligibility Questionnaire
+                </h2>
+                <p style={{ fontSize: "0.78rem", color: "var(--color-sidebar-text)", marginTop: 4 }}>
+                  {ad.questionnaire?.questions?.length
+                    ? `${ad.questionnaire.questions.length} question${ad.questionnaire.questions.length !== 1 ? "s" : ""} · edit wording or regenerate below`
+                    : "No questions yet — generate with AI to get started"
+                  }
+                </p>
+              </div>
+              <QuestionnaireViewer questionnaire={ad.questionnaire} adId={id} onGenerated={handleActionDone} />
+            </>
+          ) : (
+            <div style={{ textAlign: "center", padding: "48px 0" }}>
+              <ClipboardList size={32} style={{ color: "var(--color-card-border)", margin: "0 auto 12px" }} />
+              <p style={{ color: "var(--color-sidebar-text)", fontSize: "0.9rem" }}>This campaign type does not require a questionnaire.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* REVIEW */}
+      {pageTab === "review" && (
+        <div>
+          {!canAct ? (
+            <div style={{ textAlign: "center", padding: "48px 0" }}>
+              <ClipboardCheck size={32} style={{ color: "var(--color-card-border)", margin: "0 auto 12px" }} />
+              <p style={{ color: "var(--color-sidebar-text)", fontSize: "0.9rem" }}>
+                Campaign is <strong style={{ color: "var(--color-input-text)" }}>{ad.status}</strong> — no action required right now.
+              </p>
+            </div>
+          ) : (
+            <div style={{ maxWidth: 640 }}>
+              <ActionTabs active={actionTab} onChange={setActionTab} />
+
+              {actionTab === "verdict" && (
+                <VerdictPanel adId={id} onSubmitted={handleActionDone} />
+              )}
+              {actionTab === "restrategy" && (
+                hasStrategy
+                  ? <AIReStrategyPanel adId={id} onRewritten={handleActionDone} />
+                  : <p style={{ fontSize: "0.85rem", color: "var(--color-sidebar-text)" }}>Strategy must be generated before triggering a re-write.</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* HISTORY */}
+      {pageTab === "history" && (
+        <div>
+          {reviews.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "48px 0" }}>
+              <History size={32} style={{ color: "var(--color-card-border)", margin: "0 auto 12px" }} />
+              <p style={{ color: "var(--color-sidebar-text)", fontSize: "0.9rem" }}>No review history yet.</p>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <p style={{ fontSize: "0.75rem", color: "var(--color-sidebar-text)", marginBottom: 4 }}>
+                {reviews.length} entr{reviews.length !== 1 ? "ies" : "y"}
+              </p>
+              {reviews.map((r) => <ReviewCard key={r.id} review={r} />)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Footer refresh ── */}
+      <div style={{ paddingTop: 32, paddingBottom: 24 }}>
         <button
           onClick={() => { setLoading(true); load(); }}
           className="btn--ghost"
-          style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "0.8rem" }}
         >
           <RefreshCw size={13} /> Refresh
         </button>
-        <button onClick={() => navigate(-1)} className="btn--ghost">Back</button>
       </div>
 
     </PageWithSidebar>
+
+    {previewDoc && <DocPreviewModal doc={previewDoc} adId={id} onClose={() => setPreviewDoc(null)} />}
+    </>
   );
 }

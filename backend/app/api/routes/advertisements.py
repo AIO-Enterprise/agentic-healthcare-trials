@@ -13,7 +13,9 @@ Protocol documents (campaign-specific) are stored separately from company docume
 """
 
 import os
+import mimetypes
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
@@ -467,6 +469,37 @@ async def _user_from_query_token_ads(
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or inactive")
     return user
+
+
+@router.get("/{ad_id}/documents/{doc_id}/file")
+async def serve_protocol_document_file(
+    ad_id: str,
+    doc_id: str,
+    user: User = Depends(_user_from_query_token_ads),
+    db: AsyncSession = Depends(get_db),
+):
+    """Stream a campaign protocol document file. Auth via ?token= query param."""
+    result = await db.execute(
+        select(AdvertisementDocument).where(
+            AdvertisementDocument.id == doc_id,
+            AdvertisementDocument.advertisement_id == ad_id,
+            AdvertisementDocument.company_id == user.company_id,
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not doc.file_path:
+        raise HTTPException(status_code=404, detail="No file attached to this document")
+
+    relative = doc.file_path.lstrip("/").removeprefix("uploads/")
+    disk_path = os.path.normpath(os.path.join(BACKEND_ROOT, "uploads", relative))
+
+    if not os.path.exists(disk_path):
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    media_type, _ = mimetypes.guess_type(disk_path)
+    return FileResponse(path=disk_path, media_type=media_type or "application/octet-stream")
 
 
 @router.get("/{ad_id}/website")

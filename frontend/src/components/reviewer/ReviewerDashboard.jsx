@@ -38,7 +38,7 @@ function SkeletonRow() {
   return (
     <div style={{
       display: "grid",
-      gridTemplateColumns: "1fr 180px 90px 80px 110px",
+      gridTemplateColumns: "1fr 180px 100px 110px",
       alignItems: "center",
       padding: "14px 16px",
       borderBottom: "1px solid var(--color-border, #e5e7eb)",
@@ -55,8 +55,6 @@ function SkeletonRow() {
       </div>
       {/* Budget */}
       <div style={bar(44, 13)} />
-      {/* Type */}
-      <div style={bar(52, 12)} />
       {/* Button */}
       <div style={{ ...bar(80, 32), borderRadius: 8 }} />
     </div>
@@ -107,11 +105,11 @@ function DashboardPage({ loading, ads, reviewable, reviewed, onReview }) {
           <div>
             <div style={{
               display: "grid",
-              gridTemplateColumns: "1fr 180px 90px 80px 110px",
+              gridTemplateColumns: "1fr 180px 100px 110px",
               padding: "8px 16px",
               borderBottom: "1px solid var(--color-border, #e5e7eb)",
             }}>
-              {["Campaign", "Platforms", "Budget", "Type", ""].map((h) => (
+              {["Campaign", "Platforms", "Budget", ""].map((h) => (
                 <span key={h} style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: "var(--color-sidebar-text)" }}>
                   {h}
                 </span>
@@ -131,11 +129,11 @@ function DashboardPage({ loading, ads, reviewable, reviewed, onReview }) {
             {/* Table header */}
             <div style={{
               display: "grid",
-              gridTemplateColumns: "1fr 180px 90px 80px 110px",
+              gridTemplateColumns: "1fr 180px 100px 110px",
               padding: "8px 16px",
               borderBottom: "1px solid var(--color-border, #e5e7eb)",
             }}>
-              {["Campaign", "Platforms", "Budget", "Type", ""].map((h) => (
+              {["Campaign", "Platforms", "Budget", ""].map((h) => (
                 <span key={h} style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: "var(--color-sidebar-text)" }}>
                   {h}
                 </span>
@@ -148,7 +146,7 @@ function DashboardPage({ loading, ads, reviewable, reviewed, onReview }) {
                 key={ad.id}
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "1fr 180px 90px 80px 110px",
+                  gridTemplateColumns: "1fr 180px 100px 110px",
                   alignItems: "center",
                   padding: "14px 16px",
                   borderBottom: "1px solid var(--color-border, #e5e7eb)",
@@ -189,9 +187,6 @@ function DashboardPage({ loading, ads, reviewable, reviewed, onReview }) {
                 </div>
                 <p style={{ fontSize: 13, color: "var(--color-input-text)", fontWeight: 500 }}>
                   ${ad.budget?.toLocaleString() || "N/A"}
-                </p>
-                <p style={{ fontSize: 12, color: "var(--color-sidebar-text)", textTransform: "capitalize" }}>
-                  {ad.ad_type?.join(", ")}
                 </p>
                 <button
                   onClick={() => onReview(ad)}
