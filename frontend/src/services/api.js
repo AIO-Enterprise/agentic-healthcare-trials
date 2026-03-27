@@ -232,6 +232,11 @@ export const adsAPI = {
 
   listDocuments: (adId) => request(`/advertisements/${adId}/documents`),
 
+  getDocFileUrl: (adId, docId) => {
+    const token = localStorage.getItem("token");
+    return `${API_BASE}/advertisements/${adId}/documents/${docId}/file?token=${token}`;
+  },
+
   generateStrategy: (adId) =>
     request(`/advertisements/${adId}/generate-strategy`, { method: "POST" }),
 
@@ -282,6 +287,27 @@ export const adsAPI = {
     request(`/advertisements/${adId}/rewrite-strategy`, {
       method: "POST",
       body: JSON.stringify(data),
+    }),
+
+  deployWebsite: (adId, data) =>
+    request(`/advertisements/${adId}/deploy`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  distributeCreatives: (adId, data) =>
+    request(`/advertisements/${adId}/distribute`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  generateQuestionnaire: (adId) =>
+    request(`/advertisements/${adId}/generate-questionnaire`, { method: "POST" }),
+
+  updateQuestionnaire: (adId, questionnaire) =>
+    request(`/advertisements/${adId}/questionnaire`, {
+      method: "PATCH",
+      body: JSON.stringify({ questionnaire }),
     }),
 
   delete: (adId) =>

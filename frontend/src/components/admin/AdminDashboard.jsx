@@ -3,19 +3,179 @@
  * Owner: Frontend Dev 2
  * Dependencies: Shared Layout, adsAPI, usersAPI
  *
- * Admin's home view: stats overview, recent campaigns, quick actions.
+ * Admin's home view: stats overview, campaign queue, quick actions.
  * Styles: use classes from index.css only — no raw Tailwind color utilities.
  */
 
 import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { PageWithSidebar, SectionCard, MetricSummaryCard, CampaignStatusBadge } from "../shared/Layout";
 import { adsAPI, usersAPI } from "../../services/api";
-import { Megaphone, Users, BarChart3, Clock, Plus } from "lucide-react";
+import {
+  Megaphone, Users, BarChart3, Clock, Plus, Eye,
+  CheckCircle, ClipboardList, ArrowRight,
+} from "lucide-react";
 
+const QUESTIONNAIRE_CATEGORIES = new Set(["recruitment", "hiring", "survey", "clinical_trial", "research"]);
+const QUESTIONNAIRE_KEYWORDS = ["hiring", "recruit", "survey", "clinical", "trial", "research study", "job posting", "job opening", "application", "vacancy", "vacancies", "applicant", "enroll", "enrolment", "participant", "respondent"];
+
+function needsQuestionnaire(ad) {
+  if (!ad) return false;
+  if (QUESTIONNAIRE_CATEGORIES.has(ad.campaign_category)) return true;
+  const title = (ad.title ?? "").toLowerCase();
+  return QUESTIONNAIRE_KEYWORDS.some((kw) => title.includes(kw));
+}
+
+// ─── Skeleton row ─────────────────────────────────────────────────────────────
+function SkeletonRow() {
+  const bar = (w, h = 12) => ({
+    height: h, width: w, borderRadius: 4,
+    backgroundColor: "var(--color-card-border)",
+  });
+  return (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "1fr 180px 90px 90px 120px 110px",
+      alignItems: "center",
+      padding: "14px 16px",
+      borderBottom: "1px solid var(--color-card-border)",
+    }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={bar("55%", 13)} />
+        <div style={bar("30%", 11)} />
+      </div>
+      <div style={{ display: "flex", gap: 4 }}>
+        <div style={{ ...bar(52, 20), borderRadius: 10 }} />
+        <div style={{ ...bar(44, 20), borderRadius: 10 }} />
+      </div>
+      <div style={bar(44, 13)} />
+      <div style={bar(52, 12)} />
+      <div style={{ ...bar(72, 22), borderRadius: 10 }} />
+      <div style={{ ...bar(80, 32), borderRadius: 8 }} />
+    </div>
+  );
+}
+
+// ─── Platform tag ─────────────────────────────────────────────────────────────
+function Tag({ children }) {
+  return (
+    <span style={{
+      display: "inline-block",
+      backgroundColor: "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.1)",
+      color: "var(--color-accent)",
+      border: "1px solid rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.2)",
+      borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 500,
+      marginRight: 4, marginBottom: 4,
+    }}>
+      {children}
+    </span>
+  );
+}
+
+// ─── Table header ─────────────────────────────────────────────────────────────
+function TableHeader() {
+  return (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "1fr 180px 90px 90px 120px 110px",
+      padding: "8px 16px",
+      borderBottom: "1px solid var(--color-card-border)",
+    }}>
+      {["Campaign", "Platforms", "Budget", "Type", "Status", ""].map((h) => (
+        <span key={h} style={{
+          fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
+          color: "var(--color-sidebar-text)", textTransform: "uppercase",
+        }}>
+          {h}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ─── Campaign row ─────────────────────────────────────────────────────────────
+function CampaignRow({ ad, onOpen }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 180px 90px 90px 120px 110px",
+        alignItems: "center",
+        padding: "14px 16px",
+        borderBottom: "1px solid var(--color-card-border)",
+        transition: "background 0.15s",
+        cursor: "pointer",
+      }}
+      onMouseEnter={(e) => e.currentTarget.style.background = "var(--color-card-bg)"}
+      onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+      onClick={() => onOpen(ad)}
+    >
+      {/* Title + date */}
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+          <p style={{ fontWeight: 600, fontSize: 14, color: "var(--color-input-text)" }}>{ad.title}</p>
+          {needsQuestionnaire(ad) && (
+            <span style={{
+              display: "inline-flex", alignItems: "center", gap: "3px",
+              fontSize: "0.65rem", fontWeight: 600, padding: "1px 6px", borderRadius: "999px",
+              backgroundColor: "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.1)",
+              color: "var(--color-accent)",
+              border: "1px solid rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.25)",
+            }}>
+              <ClipboardList size={9} /> Questionnaire
+            </span>
+          )}
+        </div>
+        <p style={{ fontSize: 12, color: "var(--color-sidebar-text)", marginTop: 2 }}>
+          {new Date(ad.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+          {needsQuestionnaire(ad) && (
+            <span style={{ marginLeft: "6px", textTransform: "capitalize" }}>
+              · {ad.campaign_category ? ad.campaign_category.replace("_", " ") : "hiring / recruitment"}
+            </span>
+          )}
+        </p>
+      </div>
+
+      {/* Platforms */}
+      <div style={{ display: "flex", flexWrap: "wrap" }}>
+        {ad.platforms?.length > 0
+          ? ad.platforms.map((p) => <Tag key={p}>{p}</Tag>)
+          : <span style={{ fontSize: 12, color: "var(--color-card-border)" }}>—</span>
+        }
+      </div>
+
+      {/* Budget */}
+      <p style={{ fontSize: 13, color: "var(--color-input-text)", fontWeight: 500 }}>
+        {ad.budget ? `$${ad.budget.toLocaleString()}` : <span style={{ color: "var(--color-card-border)" }}>—</span>}
+      </p>
+
+      {/* Type */}
+      <p style={{ fontSize: 12, color: "var(--color-sidebar-text)", textTransform: "capitalize" }}>
+        {ad.ad_type?.join(", ")}
+      </p>
+
+      {/* Status */}
+      <div>
+        <CampaignStatusBadge status={ad.status} />
+      </div>
+
+      {/* Action */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onOpen(ad); }}
+        className="btn--accent"
+        style={{ display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap", fontSize: "0.8rem", padding: "6px 12px" }}
+      >
+        <Eye size={13} /> Open
+      </button>
+    </div>
+  );
+}
+
+// ─── Main dashboard ───────────────────────────────────────────────────────────
 export default function AdminDashboard() {
-  const [ads, setAds] = useState([]);
-  const [users, setUsers] = useState([]);
+  const navigate = useNavigate();
+  const [ads,     setAds]     = useState([]);
+  const [users,   setUsers]   = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -27,8 +187,11 @@ export default function AdminDashboard() {
       .finally(() => setLoading(false));
   }, []);
 
-  const published = ads.filter((a) => a.status === "published").length;
-  const inReview  = ads.filter((a) => ["under_review", "ethics_review"].includes(a.status)).length;
+  const active    = ads.filter((a) => !["published"].includes(a.status));
+  const published = ads.filter((a) => a.status === "published");
+  const inReview  = ads.filter((a) => ["under_review", "ethics_review"].includes(a.status));
+
+  const onOpen = (ad) => navigate(`/admin/campaign/${ad.id}`);
 
   return (
     <PageWithSidebar>
@@ -45,86 +208,87 @@ export default function AdminDashboard() {
 
       {/* KPI row */}
       <div className="grid grid-cols-4 gap-4 mb-8">
-        <MetricSummaryCard label="Total Campaigns" value={ads.length}   icon={Megaphone} />
-        <MetricSummaryCard label="Published"        value={published}    icon={BarChart3} trend={12} />
-        <MetricSummaryCard label="In Review"        value={inReview}     icon={Clock} />
-        <MetricSummaryCard label="Team Members"     value={users.length} icon={Users} />
+        <MetricSummaryCard label="Total Campaigns" value={loading ? "—" : ads.length}      icon={Megaphone} />
+        <MetricSummaryCard label="Published"        value={loading ? "—" : published.length} icon={BarChart3} trend={12} />
+        <MetricSummaryCard label="In Review"        value={loading ? "—" : inReview.length}  icon={Clock} />
+        <MetricSummaryCard label="Team Members"     value={loading ? "—" : users.length}     icon={Users} />
       </div>
 
-      {/* Recent campaigns */}
+      {/* Active campaigns queue */}
       <SectionCard
-        title="Recent Campaigns"
-        subtitle="Click any campaign to view full details"
+        title="Active Campaigns"
+        subtitle={loading ? "Loading…" : `${active.length} campaign${active.length !== 1 ? "s" : ""} in progress`}
         actions={
-          <Link to="/admin/analytics" className="text-sm font-medium transition-colors"
-            style={{ color: "var(--color-accent)" }}>
-            View All
+          <Link to="/admin/create" className="text-sm font-medium" style={{ color: "var(--color-accent)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <Plus size={13} /> New
           </Link>
         }
       >
         {loading ? (
-          <p className="text-sm" style={{ color: "var(--color-sidebar-text)" }}>Loading…</p>
-        ) : ads.length === 0 ? (
-          <p className="text-sm" style={{ color: "var(--color-sidebar-text)" }}>
-            No campaigns yet. Create your first one!
-          </p>
+          <div>
+            <TableHeader />
+            <SkeletonRow /><SkeletonRow /><SkeletonRow />
+          </div>
+        ) : active.length === 0 ? (
+          <div className="empty-state">
+            <ClipboardList size={40} className="empty-state__icon" />
+            <p className="empty-state__text">No active campaigns — create your first one!</p>
+          </div>
         ) : (
-          <div className="space-y-2">
-            {ads.slice(0, 5).map((ad) => (
-              <Link
-                key={ad.id}
-                to={`/admin/campaign/${ad.id}`}
-                style={{ textDecoration: "none", display: "block" }}
-              >
-                <div style={{
-                  display:         "flex",
-                  alignItems:      "center",
-                  justifyContent:  "space-between",
-                  padding:         "12px 16px",
-                  borderRadius:    "10px",
-                  border:          "1px solid var(--color-card-border)",
-                  backgroundColor: "var(--color-card-bg)",
-                  transition:      "box-shadow 0.15s, border-color 0.15s",
-                  cursor:          "pointer",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.boxShadow = "0 0 0 1.5px var(--color-accent)";
-                  e.currentTarget.style.borderColor = "var(--color-accent)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.boxShadow = "";
-                  e.currentTarget.style.borderColor = "";
-                }}
-                >
-                  <div className="flex items-center gap-3">
-                    <div style={{
-                      width:           "36px",
-                      height:          "36px",
-                      borderRadius:    "8px",
-                      backgroundColor: "var(--color-accent-subtle)",
-                      display:         "flex",
-                      alignItems:      "center",
-                      justifyContent:  "center",
-                      flexShrink:      0,
-                    }}>
-                      <Megaphone size={15} style={{ color: "var(--color-accent)" }} />
-                    </div>
-                    <div>
-                      <p className="table-row__title">{ad.title}</p>
-                      <p className="table-row__meta">
-                        {Array.isArray(ad.ad_type) ? ad.ad_type.join(", ") : ad.ad_type}
-                        {" · "}
-                        {new Date(ad.created_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                  </div>
-                  <CampaignStatusBadge status={ad.status} />
-                </div>
-              </Link>
-            ))}
+          <div>
+            <TableHeader />
+            {active.map((ad) => <CampaignRow key={ad.id} ad={ad} onOpen={onOpen} />)}
           </div>
         )}
       </SectionCard>
+
+      {/* Published campaigns */}
+      {!loading && published.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <SectionCard
+            title="Published"
+            subtitle={`${published.length} live`}
+            actions={
+              <Link to="/admin/analytics" className="text-sm font-medium" style={{ color: "var(--color-accent)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                Analytics <ArrowRight size={13} />
+              </Link>
+            }
+          >
+            {published.map((ad) => (
+              <div
+                key={ad.id}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "12px 16px",
+                  borderBottom: "1px solid var(--color-card-border)",
+                  transition: "background 0.15s", cursor: "pointer",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = "var(--color-card-bg)"}
+                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                onClick={() => onOpen(ad)}
+              >
+                <div>
+                  <p style={{ fontWeight: 600, fontSize: 14, color: "var(--color-input-text)" }}>{ad.title}</p>
+                  <p style={{ fontSize: 12, color: "var(--color-sidebar-text)", marginTop: 2 }}>
+                    {ad.platforms?.join(" · ")}
+                    {ad.budget && ` · $${ad.budget.toLocaleString()}`}
+                  </p>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <CampaignStatusBadge status={ad.status} />
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onOpen(ad); }}
+                    className="btn--ghost"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: "0.8rem", padding: "6px 12px" }}
+                  >
+                    <Eye size={13} /> Open
+                  </button>
+                </div>
+              </div>
+            ))}
+          </SectionCard>
+        </div>
+      )}
     </PageWithSidebar>
   );
 }

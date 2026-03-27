@@ -29,8 +29,400 @@ import {
   FileText, CheckCircle2, AlertCircle, ChevronDown, ChevronUp,
   Loader2, Target, DollarSign, Users, Layers, Zap, BarChart2,
   MessageCircle, Send, ThumbsUp, ThumbsDown, RefreshCw, Sparkles,
-  Download, Eye, Trash2,
+  Download, Eye, Trash2, ClipboardList, Plus, X as XIcon, GripVertical,
+  LayoutDashboard, ClipboardCheck, History,
 } from "lucide-react";
+
+// ─── Campaign categories that require a questionnaire ─────────────────────────
+const QUESTIONNAIRE_CATEGORIES = new Set(["recruitment", "hiring", "survey", "clinical_trial", "research"]);
+
+const QUESTIONNAIRE_KEYWORDS = ["hiring", "recruit", "survey", "clinical", "trial", "research study", "job posting", "job opening", "application", "vacancy", "vacancies", "applicant", "enroll", "enrolment", "participant", "respondent"];
+
+/** Check protocol doc titles first (strongest signal), fall back to campaign title. */
+function needsQuestionnaire(ad, docs = []) {
+  if (!ad) return false;
+  if (QUESTIONNAIRE_CATEGORIES.has(ad.campaign_category)) return true;
+  const docText = docs.map((d) => `${d.title ?? ""} ${d.doc_type ?? ""}`).join(" ").toLowerCase();
+  if (docText && QUESTIONNAIRE_KEYWORDS.some((kw) => docText.includes(kw))) return true;
+  const title = (ad.title ?? "").toLowerCase();
+  return QUESTIONNAIRE_KEYWORDS.some((kw) => title.includes(kw));
+}
+
+// ─── Protocol document preview modal ─────────────────────────────────────────
+
+function extFromPath(p) {
+  if (!p) return null;
+  const parts = p.split("/").pop().split(".");
+  return parts.length > 1 ? parts.pop().toLowerCase() : null;
+}
+
+function DocPreviewModal({ doc, adId, onClose }) {
+  const ext  = extFromPath(doc.file_path);
+  const mode = !ext ? "download" : ext === "pdf" ? "pdf" : ["txt", "md"].includes(ext) ? "text" : "download";
+  const url  = adsAPI.getDocFileUrl(adId, doc.id);
+
+  const [textContent, setTextContent] = useState(null);
+  const [textError,   setTextError]   = useState(false);
+
+  useEffect(() => {
+    if (mode !== "text") return;
+    fetch(url)
+      .then((r) => { if (!r.ok) throw new Error(); return r.text(); })
+      .then(setTextContent)
+      .catch(() => setTextError(true));
+  }, [url, mode]);
+
+  return (
+    <div
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      style={{ position: "fixed", inset: 0, zIndex: 50, backgroundColor: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}
+    >
+      <div style={{ backgroundColor: "var(--color-card-bg)", border: "1px solid var(--color-card-border)", borderRadius: 14, width: "100%", maxWidth: 860, maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid var(--color-card-border)", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 7, flexShrink: 0, backgroundColor: "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.12)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <FileText size={15} style={{ color: "var(--color-accent)" }} />
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <p style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--color-input-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.title}</p>
+              <p style={{ fontSize: "0.72rem", color: "var(--color-sidebar-text)" }}>
+                {doc.file_path?.split("/").pop()}{ext ? ` · ${ext.toUpperCase()}` : ""}{doc.doc_type ? ` · ${doc.doc_type.replace(/_/g, " ")}` : ""}
+              </p>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, marginLeft: 12 }}>
+            {doc.file_path && (
+              <a href={url} download onClick={(e) => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 7, fontSize: "0.78rem", fontWeight: 500, cursor: "pointer", textDecoration: "none", border: "1px solid var(--color-card-border)", backgroundColor: "var(--color-input-bg)", color: "var(--color-input-text)" }}>
+                <Download size={13} /> Download
+              </a>
+            )}
+            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", borderRadius: 6, color: "var(--color-sidebar-text)" }}>
+              <XIcon size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflow: "hidden", position: "relative", minHeight: 560 }}>
+          {mode === "pdf" && (
+            <iframe src={url} title={doc.title} style={{ width: "100%", height: "100%", border: "none", display: "block", minHeight: 560 }} />
+          )}
+          {mode === "text" && (
+            <div style={{ height: "100%", overflowY: "auto", padding: "20px 24px" }}>
+              {textError
+                ? <p style={{ color: "#ef4444", fontSize: "0.875rem" }}>Failed to load file content.</p>
+                : textContent === null
+                  ? <p style={{ color: "var(--color-sidebar-text)", fontSize: "0.875rem" }}>Loading…</p>
+                  : <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: "0.82rem", lineHeight: 1.7, color: "var(--color-input-text)", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{textContent}</pre>
+              }
+            </div>
+          )}
+          {mode === "download" && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: "48px 24px", textAlign: "center" }}>
+              <FileText size={40} style={{ color: "var(--color-sidebar-text)", opacity: 0.5 }} />
+              <p style={{ color: "var(--color-input-text)", fontWeight: 600, fontSize: "0.95rem" }}>Preview not available for {ext ? ext.toUpperCase() : "this file type"}</p>
+              <p style={{ color: "var(--color-sidebar-text)", fontSize: "0.82rem", maxWidth: 340 }}>Download the file to view it in your local application.</p>
+              {doc.file_path && (
+                <a href={url} download style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 18px", borderRadius: 8, fontSize: "0.85rem", fontWeight: 600, cursor: "pointer", textDecoration: "none", backgroundColor: "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.1)", border: "1px solid var(--color-accent)", color: "var(--color-accent)" }}>
+                  <Download size={15} /> Download {ext?.toUpperCase() ?? "File"}
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const QUESTION_TYPES = [
+  { value: "text",             label: "Short Text" },
+  { value: "textarea",         label: "Long Text" },
+  { value: "yes_no",           label: "Yes / No" },
+  { value: "multiple_choice",  label: "Multiple Choice" },
+  { value: "scale",            label: "Scale (1–5)" },
+];
+
+function newQuestion() {
+  return { id: crypto.randomUUID(), text: "", type: "multiple_choice", options: ["", ""], required: true };
+}
+
+// ─── Auto-sizing textarea for question text ───────────────────────────────────
+function AutoTextarea({ value, onChange, inputBase }) {
+  const ref = useRef(null);
+
+  // Resize on mount and whenever value changes externally (e.g. AI generate)
+  useEffect(() => {
+    if (!ref.current) return;
+    ref.current.style.height = "auto";
+    ref.current.style.height = ref.current.scrollHeight + "px";
+  }, [value]);
+
+  return (
+    <textarea
+      ref={ref}
+      style={{
+        ...inputBase, flex: 1, fontWeight: 600,
+        backgroundColor: "transparent",
+        border: "1px solid transparent",
+        transition: "border-color 0.15s",
+        resize: "none", overflow: "hidden",
+        lineHeight: 1.5, fontFamily: "inherit",
+        minHeight: "36px",
+      }}
+      rows={1}
+      value={value}
+      onChange={(e) => {
+        onChange(e.target.value);
+        e.target.style.height = "auto";
+        e.target.style.height = e.target.scrollHeight + "px";
+      }}
+      onFocus={(e) => e.target.style.borderColor = "var(--color-accent)"}
+      onBlur={(e) => e.target.style.borderColor = "transparent"}
+      placeholder="Enter question text…"
+    />
+  );
+}
+
+// ─── Questionnaire builder / viewer ───────────────────────────────────────────
+function QuestionnaireSection({ adId, questionnaire, readOnly, onSaved }) {
+  const saved       = questionnaire?.questions ?? [];
+  const [questions, setQuestions] = useState(saved.length ? saved : [newQuestion()]);
+  const [saving,    setSaving]    = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  const [saved_ok,  setSavedOk]   = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError,   setAiError]   = useState(null);
+  const qProgress = useGenerateProgress();
+
+  // keep local state in sync when parent reloads
+  useEffect(() => {
+    const qs = questionnaire?.questions ?? [];
+    setQuestions(qs.length ? qs : [newQuestion()]);
+  }, [questionnaire]);
+
+  const updateQ = (id, patch) =>
+    setQuestions((prev) => prev.map((q) => q.id === id ? { ...q, ...patch } : q));
+
+  const updateOption = (qId, idx, val) =>
+    setQuestions((prev) => prev.map((q) =>
+      q.id === qId ? { ...q, options: q.options.map((o, i) => i === idx ? val : o) } : q
+    ));
+
+  const addOption = (qId) =>
+    setQuestions((prev) => prev.map((q) =>
+      q.id === qId ? { ...q, options: [...(q.options ?? []), ""] } : q
+    ));
+
+  const removeOption = (qId, idx) =>
+    setQuestions((prev) => prev.map((q) =>
+      q.id === qId ? { ...q, options: q.options.filter((_, i) => i !== idx) } : q
+    ));
+
+  const addQuestion = () => setQuestions((prev) => [...prev, newQuestion()]);
+
+  const removeQuestion = (id) =>
+    setQuestions((prev) => prev.length > 1 ? prev.filter((q) => q.id !== id) : prev);
+
+  const save = async () => {
+    const incomplete = questions.find((q) => !q.text.trim());
+    if (incomplete) { setSaveError("All questions must have text."); return; }
+    setSaving(true); setSaveError(null); setSavedOk(false);
+    try {
+      await adsAPI.updateQuestionnaire(adId, { questions });
+      setSavedOk(true);
+      if (onSaved) onSaved();
+    } catch (err) {
+      setSaveError(err.message || "Failed to save questionnaire.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const generateWithAI = async () => {
+    setAiLoading(true); setAiError(null);
+    qProgress.start("Generating questions…", 15000);
+    try {
+      const updated = await adsAPI.generateQuestionnaire(adId);
+      const qs = updated.questionnaire?.questions ?? [];
+      if (qs.length) setQuestions(qs);
+      qProgress.complete();
+      if (onSaved) onSaved();
+    } catch (err) {
+      qProgress.fail();
+      setAiError(err.message || "AI questionnaire generation failed.");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const inputBase = {
+    width: "100%", padding: "7px 10px", borderRadius: "7px", fontSize: "0.82rem",
+    border: "1px solid var(--color-card-border)", backgroundColor: "var(--color-input-bg)",
+    color: "var(--color-input-text)", outline: "none", boxSizing: "border-box",
+  };
+
+  const hasQuestions = saved.length > 0;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+
+      {/* AI Generate banner */}
+      <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+        <button
+          onClick={generateWithAI}
+          disabled={aiLoading}
+          className="btn--accent"
+          style={{ display: "inline-flex", alignItems: "center", gap: "7px", opacity: aiLoading ? 0.7 : 1 }}
+        >
+          {aiLoading
+            ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
+            : <Sparkles size={14} />}
+          {aiLoading ? "Generating…" : hasQuestions ? "Regenerate with AI" : "Generate with AI"}
+        </button>
+        {aiLoading
+          ? <InlineProgress progress={qProgress.progress} />
+          : (
+            <p style={{ fontSize: "0.75rem", color: "var(--color-sidebar-text)" }}>
+              {hasQuestions
+                ? "Claude will replace the current questions based on campaign context and documents."
+                : "Claude will generate MCQ eligibility questions from your campaign brief and protocol documents."}
+            </p>
+          )
+        }
+      </div>
+
+      {aiError && (
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 14px", borderRadius: "8px", backgroundColor: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)" }}>
+          <AlertCircle size={14} style={{ color: "#ef4444", flexShrink: 0 }} />
+          <p style={{ fontSize: "0.82rem", color: "#ef4444" }}>{aiError}</p>
+        </div>
+      )}
+
+      <div style={{ height: "1px", backgroundColor: "var(--color-card-border)" }} />
+
+      {questions.map((q, qi) => (
+        <div key={q.id} style={{
+          borderRadius: "10px", border: "1px solid var(--color-card-border)",
+          backgroundColor: "var(--color-card-bg)", overflow: "hidden",
+        }}>
+          {/* Question header */}
+          <div style={{
+            display: "flex", alignItems: "center", gap: "10px",
+            padding: "10px 14px", borderBottom: "1px solid var(--color-card-border)",
+            backgroundColor: "var(--color-page-bg)",
+          }}>
+            <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--color-sidebar-text)", flexShrink: 0 }}>
+              Q{qi + 1}
+            </span>
+            {!readOnly ? (
+              <>
+                <AutoTextarea
+                  value={q.text}
+                  onChange={(val) => updateQ(q.id, { text: val })}
+                  inputBase={inputBase}
+                />
+                <button
+                  onClick={() => removeQuestion(q.id)}
+                  disabled={questions.length === 1}
+                  style={{ background: "none", border: "none", cursor: questions.length === 1 ? "not-allowed" : "pointer", padding: "4px", color: questions.length === 1 ? "var(--color-card-border)" : "#ef4444", flexShrink: 0, alignSelf: "flex-start", marginTop: "6px" }}
+                  title="Delete question"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </>
+            ) : (
+              <span style={{ flex: 1, fontSize: "0.85rem", fontWeight: 600, color: "var(--color-input-text)", lineHeight: 1.5 }}>{q.text}</span>
+            )}
+          </div>
+
+          {/* Options */}
+          <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: "6px" }}>
+            {(q.options ?? []).map((opt, oi) => (
+              <div key={oi} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <div style={{ width: "13px", height: "13px", borderRadius: "50%", border: "1px solid var(--color-card-border)", flexShrink: 0 }} />
+                {!readOnly ? (
+                  <>
+                    <input
+                      style={{ ...inputBase, flex: 1 }}
+                      value={opt}
+                      onChange={(e) => updateOption(q.id, oi, e.target.value)}
+                      placeholder={`Option ${oi + 1}`}
+                    />
+                    <button
+                      onClick={() => removeOption(q.id, oi)}
+                      disabled={(q.options ?? []).length <= 2}
+                      style={{ background: "none", border: "none", cursor: (q.options ?? []).length <= 2 ? "not-allowed" : "pointer", color: (q.options ?? []).length <= 2 ? "var(--color-card-border)" : "#ef4444", padding: "4px", flexShrink: 0 }}
+                      title="Remove option"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </>
+                ) : (
+                  <span style={{ fontSize: "0.82rem", color: "var(--color-input-text)" }}>{opt || <em style={{ color: "var(--color-sidebar-text)" }}>—</em>}</span>
+                )}
+              </div>
+            ))}
+            {!readOnly && (
+              <button
+                onClick={() => addOption(q.id)}
+                style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "5px", color: "var(--color-accent)", fontSize: "0.75rem", fontWeight: 600, padding: "2px 0", marginTop: "2px" }}
+              >
+                <Plus size={12} /> Add option
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+
+      {!readOnly && (
+        <>
+          <button
+            onClick={addQuestion}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: "6px",
+              background: "none", border: "1px dashed var(--color-card-border)",
+              borderRadius: "8px", padding: "8px 16px", cursor: "pointer",
+              color: "var(--color-accent)", fontSize: "0.8rem", fontWeight: 600,
+              width: "100%", justifyContent: "center",
+            }}
+          >
+            <Plus size={13} /> Add Question
+          </button>
+
+          {saveError && (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 14px", borderRadius: "8px", backgroundColor: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)" }}>
+              <AlertCircle size={14} style={{ color: "#ef4444", flexShrink: 0 }} />
+              <p style={{ fontSize: "0.82rem", color: "#ef4444" }}>{saveError}</p>
+            </div>
+          )}
+          {saved_ok && (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 14px", borderRadius: "8px", backgroundColor: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.25)" }}>
+              <CheckCircle2 size={14} style={{ color: "#22c55e", flexShrink: 0 }} />
+              <p style={{ fontSize: "0.82rem", color: "#22c55e" }}>Changes saved.</p>
+            </div>
+          )}
+
+          <button
+            onClick={save}
+            disabled={saving}
+            className="btn--accent"
+            style={{ display: "inline-flex", alignItems: "center", gap: "8px", opacity: saving ? 0.7 : 1 }}
+          >
+            {saving ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <CheckCircle2 size={14} />}
+            {saving ? "Saving…" : "Save Changes"}
+          </button>
+        </>
+      )}
+
+      {readOnly && questions.length === 0 && (
+        <p style={{ fontSize: "0.82rem", color: "var(--color-sidebar-text)" }}>No questions added yet.</p>
+      )}
+    </div>
+  );
+}
 
 // ─── Generate progress hook ───────────────────────────────────────────────────
 function useGenerateProgress() {
@@ -355,6 +747,7 @@ function ContentPlanTable({ items }) {
     ...allKeys.filter(k => !PREFERRED_ORDER.includes(k)),
   ];
   const mainCols = cols.filter(k => k !== "example");
+  const COL_WIDTHS = { channel: "22%", format: "30%", frequency: "22%" };
 
   return (
     <div style={{ overflowX: "auto" }}>
@@ -364,6 +757,7 @@ function ContentPlanTable({ items }) {
             {mainCols.map(col => (
               <th key={col} style={{
                 padding: "6px 12px", textAlign: "left",
+                width: COL_WIDTHS[col],
                 fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase",
                 letterSpacing: "0.06em", color: "var(--color-sidebar-text)",
                 borderBottom: "1px solid var(--color-card-border)",
@@ -440,37 +834,85 @@ function ContentPlanTable({ items }) {
   );
 }
 
-function KpiGrid({ kpis }) {
+// ─── KPI bar chart (mirrors ReviewDetailPage) ────────────────────────────────
+
+const DONUT_PALETTE = [
+  "var(--color-accent)", "#6366f1", "#f59e0b", "#ec4899",
+  "#14b8a6", "#8b5cf6", "#f97316", "#0ea5e9",
+];
+
+function detectKpiCategory(text) {
+  const t = (text ?? "").toLowerCase();
+  if (/ctr|click.through|click.rate/.test(t))  return { label: "CTR",    color: "#6366f1" };
+  if (/cpa|cost.per.acq|cost per acq/.test(t)) return { label: "CPA",    color: "#f59e0b" };
+  if (/roas|return.on.ad/.test(t))             return { label: "ROAS",   color: "#14b8a6" };
+  if (/impression|reach|awareness/.test(t))    return { label: "REACH",  color: "#8b5cf6" };
+  if (/conversion|convert/.test(t))            return { label: "CVR",    color: "#ec4899" };
+  if (/engag/.test(t))                         return { label: "ENG",    color: "#f97316" };
+  if (/revenue|roi|return on invest/.test(t))  return { label: "ROI",    color: "#0ea5e9" };
+  if (/bounce/.test(t))                        return { label: "BOUNCE", color: "#ef4444" };
+  if (/open rate|email/.test(t))               return { label: "EMAIL",  color: "#22c55e" };
+  if (/lead/.test(t))                          return { label: "LEADS",  color: "#a78bfa" };
+  if (/view|video|watch/.test(t))              return { label: "VIDEO",  color: "#fb923c" };
+  return null;
+}
+
+function extractNumber(str) {
+  if (!str) return null;
+  const s = str.replace(/,/g, "");
+  const m = s.match(/(\d+(?:\.\d+)?)\s*([km×x]?)/i);
+  if (!m) return null;
+  let n = parseFloat(m[1]);
+  const suf = m[2].toLowerCase();
+  if (suf === "k") n *= 1000;
+  else if (suf === "m") n *= 1_000_000;
+  return n;
+}
+
+function QuantKpiChart({ kpis }) {
+  const normalized = kpis.map(k =>
+    typeof k === "string" ? { metric: k, target: null, context: null } : k
+  );
+  const nums   = normalized.map(k => extractNumber(k.target) ?? 0);
+  const maxVal = Math.max(...nums, 1);
+  const BAR_MAX = 88, BAR_MIN = 28;
+
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "8px" }}>
-      {kpis.map((kpi, i) => {
-        // kpi may be a string "Label: description" or an object from the AI
-        const kpiStr = typeof kpi === "string" ? kpi : JSON.stringify(kpi);
-        const colonIdx = kpiStr.indexOf(":");
-        const [label, desc] = colonIdx !== -1
-          ? [kpiStr.slice(0, colonIdx).trim(), kpiStr.slice(colonIdx + 1).trim()]
-          : [kpiStr, ""];
-        return (
-          <div key={i} style={{
-            display: "flex", alignItems: "flex-start", gap: "8px",
-            padding: "8px 10px", borderRadius: "8px",
-            border: "1px solid var(--color-card-border)",
-            backgroundColor: "var(--color-card-bg)",
-          }}>
-            <Zap size={11} style={{ color: "var(--color-accent)", flexShrink: 0, marginTop: "3px" }} />
-            <div>
-              <p style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--color-input-text)", lineHeight: 1.4 }}>
-                {label}
-              </p>
-              {desc && (
-                <p style={{ fontSize: "0.72rem", color: "var(--color-sidebar-text)", lineHeight: 1.4, marginTop: "2px" }}>
-                  {desc}
-                </p>
+    <div>
+      <div style={{
+        display: "flex", alignItems: "flex-end", gap: 10,
+        borderBottom: "2px solid var(--color-card-border)",
+      }}>
+        {normalized.map((k, i) => {
+          const cat   = detectKpiCategory(k.metric);
+          const color = cat?.color ?? DONUT_PALETTE[i % DONUT_PALETTE.length];
+          const barH  = nums[i] === 0 ? BAR_MIN : BAR_MIN + ((nums[i] / maxVal) * (BAR_MAX - BAR_MIN));
+          return (
+            <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <span style={{ fontSize: "0.72rem", fontWeight: 800, color, letterSpacing: "0.02em" }}>{k.target}</span>
+              <div style={{
+                width: "100%", height: barH, borderRadius: "5px 5px 0 0",
+                background: `linear-gradient(180deg, ${color}dd 0%, ${color}55 100%)`,
+                transition: "height 0.45s ease",
+              }} />
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", gap: 10, paddingTop: 6 }}>
+        {normalized.map((k, i) => {
+          const cat   = detectKpiCategory(k.metric);
+          const color = cat?.color ?? DONUT_PALETTE[i % DONUT_PALETTE.length];
+          return (
+            <div key={i} style={{ flex: 1, textAlign: "center" }}>
+              <p style={{ fontSize: "0.72rem", fontWeight: 700, color, margin: 0 }}>{k.metric}</p>
+              {k.context && (
+                <p style={{ fontSize: "0.6rem", color: "var(--color-sidebar-text)", margin: "2px 0 0", lineHeight: 1.3 }}>{k.context}</p>
               )}
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -500,6 +942,67 @@ function BudgetBar({ budgetData }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function DonutChart({ slices, size = 150, thickness = 26 }) {
+  const r    = (size - thickness) / 2;
+  const circ = 2 * Math.PI * r;
+  const cx   = size / 2, cy = size / 2;
+  let acc = 0;
+  return (
+    <svg width={size} height={size}>
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--color-card-border)" strokeWidth={thickness} />
+      {slices.map((slice, i) => {
+        const arc    = (slice.pct / 100) * circ;
+        const offset = -(acc / 100) * circ;
+        acc += slice.pct;
+        return (
+          <circle
+            key={i} cx={cx} cy={cy} r={r}
+            fill="none" stroke={slice.color} strokeWidth={thickness}
+            strokeDasharray={`${arc} ${circ}`}
+            strokeDashoffset={offset}
+            transform={`rotate(-90 ${cx} ${cy})`}
+            style={{ transition: "stroke-dasharray 0.4s ease" }}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+function BudgetDonut({ strategy }) {
+  if (!strategy?.budget_allocation) return null;
+  const entries = Object.entries(strategy.budget_allocation);
+  if (!entries.length) return null;
+  const slices = entries.map(([label, val], i) => ({
+    label,
+    pct: parseFloat(String(val)) || 0,
+    color: DONUT_PALETTE[i % DONUT_PALETTE.length],
+  }));
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 20, padding: "4px 0" }}>
+      <div style={{ position: "relative", flexShrink: 0 }}>
+        <DonutChart slices={slices} />
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+          <DollarSign size={16} style={{ color: "var(--color-accent)" }} />
+        </div>
+      </div>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 7 }}>
+        {slices.map((s) => (
+          <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 9, height: 9, borderRadius: 2, backgroundColor: s.color, flexShrink: 0 }} />
+            <p style={{ flex: 1, fontSize: "0.78rem", color: "var(--color-input-text)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>
+              {s.label}
+            </p>
+            <p style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--color-input-text)", flexShrink: 0, margin: 0 }}>
+              {s.pct}%
+            </p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -591,7 +1094,7 @@ function StrategyViewer({ strategy }) {
                 </p>
               </div>
               <div style={{ padding: "12px 14px" }}>
-                <KpiGrid kpis={kpis} />
+                <QuantKpiChart kpis={kpis} />
               </div>
             </div>
           )}
@@ -868,12 +1371,36 @@ function ReviewPanel({ adId, onSubmitted }) {
 
 // ─── Review card ──────────────────────────────────────────────────────────────
 function ReviewCard({ review }) {
+  const isSystem = review.review_type === "system" || review.is_system;
   const statusColor = {
     approved: "var(--color-success)",
     rejected: "#ef4444",
     revision: "#f59e0b",
     pending:  "var(--color-sidebar-text)",
   }[review.status] ?? "var(--color-sidebar-text)";
+
+  if (isSystem) {
+    return (
+      <div style={{
+        display: "flex", alignItems: "flex-start", gap: 10,
+        padding: "10px 14px", borderRadius: 8,
+        border: "1px dashed var(--color-card-border)",
+        backgroundColor: "var(--color-page-bg)",
+      }}>
+        <RefreshCw size={13} style={{ color: "var(--color-sidebar-text)", flexShrink: 0, marginTop: 2 }} />
+        <div>
+          <p style={{ fontSize: "0.78rem", color: "var(--color-sidebar-text)", lineHeight: 1.6, fontStyle: "italic" }}>
+            {review.comments}
+          </p>
+          {review.created_at && (
+            <p style={{ fontSize: "0.68rem", color: "var(--color-sidebar-text)", marginTop: 4 }}>
+              {new Date(review.created_at).toLocaleString()}
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -1099,6 +1626,54 @@ class DetailErrorBoundary extends Component {
   }
 }
 
+// ─── Page-level tabs ──────────────────────────────────────────────────────────
+const PAGE_TABS = [
+  { key: "overview",      label: "Overview",      icon: LayoutDashboard },
+  { key: "strategy",      label: "Strategy",      icon: Layers          },
+  { key: "questionnaire", label: "Questionnaire", icon: ClipboardList   },
+  { key: "review",        label: "Review",        icon: ClipboardCheck  },
+  { key: "history",       label: "History",       icon: History         },
+  { key: "publish",       label: "Publish",       icon: Zap             },
+];
+
+function PageTabBar({ active, onChange, showQuestionnaireDot }) {
+  return (
+    <div style={{
+      display: "flex", borderBottom: "1px solid var(--color-card-border)",
+      marginBottom: 28, gap: 0, overflowX: "auto",
+    }}>
+      {PAGE_TABS.map(({ key, label, icon: Icon }) => {
+        const isActive = active === key;
+        const hasDot   = key === "questionnaire" && showQuestionnaireDot;
+        return (
+          <button
+            key={key}
+            onClick={() => onChange(key)}
+            style={{
+              display: "flex", alignItems: "center", gap: 7, position: "relative",
+              padding: "11px 18px", border: "none", background: "none",
+              cursor: "pointer", fontSize: "0.82rem", fontWeight: isActive ? 700 : 500,
+              color: isActive ? "var(--color-accent)" : "var(--color-sidebar-text)",
+              borderBottom: isActive ? "2px solid var(--color-accent)" : "2px solid transparent",
+              marginBottom: -1, transition: "color 0.15s", whiteSpace: "nowrap", flexShrink: 0,
+            }}
+          >
+            <Icon size={14} />
+            {label}
+            {hasDot && (
+              <span style={{
+                width: 7, height: 7, borderRadius: "50%",
+                backgroundColor: "#f59e0b",
+                display: "inline-block", marginLeft: 2, flexShrink: 0,
+              }} />
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function CampaignDetailPage() {
   return <DetailErrorBoundary><CampaignDetailPageInner /></DetailErrorBoundary>;
@@ -1109,10 +1684,11 @@ function CampaignDetailPageInner() {
   const navigate    = useNavigate();
 
   const [ad,        setAd]        = useState(null);
-  const [protoDocs, setProtoDocs] = useState([]);
-  const [reviews,   setReviews]   = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState(null);
+  const [protoDocs,  setProtoDocs]  = useState([]);
+  const [reviews,    setReviews]    = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState(null);
+  const [previewDoc, setPreviewDoc] = useState(null);
 
   // Per-action loading & error
   const [genLoading,  setGenLoading]  = useState(false);
@@ -1127,6 +1703,12 @@ function CampaignDetailPageInner() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [websiteLoading,  setWebsiteLoading]  = useState(false);
   const [websiteError,    setWebsiteError]    = useState(null);
+  const [regenLoading,    setRegenLoading]    = useState(false);
+  const [regenError,      setRegenError]      = useState(null);
+  const [regenInstr,      setRegenInstr]      = useState("");
+  const [regenConfirmed,  setRegenConfirmed]  = useState(false);
+  const [regenOpen,       setRegenOpen]       = useState(false);
+  const [pageTab,         setPageTab]         = useState("overview");
 
   const genProgress = useGenerateProgress();
 
@@ -1231,6 +1813,24 @@ function CampaignDetailPageInner() {
     }
   };
 
+  const handleRegenStrategy = async () => {
+    if (!regenInstr.trim()) { setRegenError("Instructions are required."); return; }
+    if (!regenConfirmed)    { setRegenError("Please confirm the current strategy will be replaced."); return; }
+    setRegenLoading(true); setRegenError(null);
+    genProgress.start("Re-writing strategy…", 25000);
+    try {
+      const updated = await adsAPI.rewriteStrategy(id, { instructions: regenInstr.trim() });
+      setAd(updated);
+      genProgress.complete();
+      setRegenInstr(""); setRegenConfirmed(false); setRegenOpen(false);
+    } catch (err) {
+      genProgress.fail();
+      setRegenError(err.message || "Strategy regeneration failed.");
+    } finally {
+      setRegenLoading(false);
+    }
+  };
+
   const handleDelete = async () => {
     setDeleteLoading(true);
     try {
@@ -1249,6 +1849,9 @@ function CampaignDetailPageInner() {
   const hasReviews  = ad && currentStep >= statusIndex("under_review");
   const isPublished = ad && ad.status === "published";
   const canReview   = ad && (ad.status === "under_review" || ad.status === "strategy_created" || ad.status === "ethics_review");
+  const qualifies   = ad && needsQuestionnaire(ad, protoDocs);
+  const questEmpty  = !(ad?.questionnaire?.questions?.length > 0);
+  const showQDot    = qualifies && questEmpty;
 
   if (loading) return (
     <PageWithSidebar>
@@ -1271,39 +1874,11 @@ function CampaignDetailPageInner() {
   );
 
   return (
+    <>
     <PageWithSidebar>
 
       {/* CSS for spinner */}
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
-
-      {/* Page header */}
-      <div className="page-header">
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <button onClick={() => navigate(-1)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", padding: "4px" }}>
-            <ArrowLeft size={18} style={{ color: "var(--color-sidebar-text)" }} />
-          </button>
-          <div>
-            <h1 className="page-header__title">{ad.title}</h1>
-            <p className="page-header__subtitle">Created {new Date(ad.created_at).toLocaleDateString()}</p>
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <CampaignStatusBadge status={ad.status} />
-          {role === "admin" && (
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              title="Delete campaign"
-              style={{
-                background: "none", border: "1px solid #ef4444", borderRadius: "8px",
-                cursor: "pointer", display: "flex", alignItems: "center", gap: "5px",
-                padding: "6px 12px", color: "#ef4444", fontSize: "0.8rem", fontWeight: 500,
-              }}
-            >
-              <Trash2 size={14} /> Delete
-            </button>
-          )}
-        </div>
-      </div>
 
       {/* Delete confirmation modal */}
       {showDeleteConfirm && (
@@ -1324,11 +1899,7 @@ function CampaignDetailPageInner() {
               its documents, reviews, and analytics. This action cannot be undone.
             </p>
             <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={deleteLoading}
-                className="btn--ghost"
-              >
+              <button onClick={() => setShowDeleteConfirm(false)} disabled={deleteLoading} className="btn--ghost">
                 Cancel
               </button>
               <button
@@ -1341,9 +1912,7 @@ function CampaignDetailPageInner() {
                   opacity: deleteLoading ? 0.7 : 1,
                 }}
               >
-                {deleteLoading
-                  ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
-                  : <Trash2 size={14} />}
+                {deleteLoading ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Trash2 size={14} />}
                 Delete Campaign
               </button>
             </div>
@@ -1351,399 +1920,635 @@ function CampaignDetailPageInner() {
         </div>
       )}
 
-      <div className="space-y-6">
+      {/* ── Back button ── */}
+      <button
+        onClick={() => navigate(-1)}
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 20,
+          padding: "6px 12px", border: "1px solid var(--color-card-border)",
+          borderRadius: 8, background: "transparent", cursor: "pointer",
+          fontSize: "0.8rem", color: "var(--color-sidebar-text)",
+        }}
+      >
+        <ArrowLeft size={14} /> Back
+      </button>
 
-        {/* Status timeline */}
-        <SectionCard title="Campaign Progress">
-          <StatusTimeline status={ad.status} />
-        </SectionCard>
+      {/* ── Hero card ── */}
+      <div style={{
+        borderRadius: 16,
+        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #0f2027 100%)",
+        padding: "32px 36px", marginBottom: 32, position: "relative", overflow: "hidden",
+      }}>
+        {/* decorative blobs */}
+        <div style={{ position: "absolute", top: -40, right: -40, width: 180, height: 180, borderRadius: "50%", background: "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.08)", pointerEvents: "none" }} />
+        <div style={{ position: "absolute", bottom: -30, left: 120, width: 120, height: 120, borderRadius: "50%", background: "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.05)", pointerEvents: "none" }} />
 
-        {/* Metadata */}
-        <SectionCard title="Campaign Details">
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "20px" }}>
-
-            <div>
-              <p style={{ fontSize: "0.72rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-sidebar-text)", marginBottom: "6px" }}>
-                Campaign Type
-              </p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                {ad.ad_type?.map((t) => <AdTypeChip key={t} type={t} />)}
-              </div>
-            </div>
-
-            {ad.budget && (
-              <div>
-                <p style={{ fontSize: "0.72rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-sidebar-text)", marginBottom: "6px" }}>Budget</p>
-                <p style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--color-input-text)" }}>${ad.budget.toLocaleString()}</p>
-              </div>
-            )}
-
-            {ad.platforms?.length > 0 && (
-              <div>
-                <p style={{ fontSize: "0.72rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-sidebar-text)", marginBottom: "6px" }}>Platforms</p>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                  {ad.platforms.map((p) => (
-                    <span key={p} style={{ fontSize: "0.72rem", padding: "2px 8px", borderRadius: "999px", border: "1px solid var(--color-card-border)", color: "var(--color-sidebar-text)" }}>{p}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {ad.target_audience && Object.values(ad.target_audience).some(Boolean) && (
-              <div>
-                <p style={{ fontSize: "0.72rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-sidebar-text)", marginBottom: "6px" }}>Target Audience</p>
-                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                  {ad.target_audience.age_range && <p style={{ fontSize: "0.82rem", color: "var(--color-input-text)" }}>Age: {ad.target_audience.age_range}</p>}
-                  {ad.target_audience.gender    && <p style={{ fontSize: "0.82rem", color: "var(--color-input-text)" }}>Gender: {ad.target_audience.gender}</p>}
-                  {ad.target_audience.interests && <p style={{ fontSize: "0.82rem", color: "var(--color-input-text)" }}>Interests: {ad.target_audience.interests}</p>}
-                </div>
-              </div>
-            )}
-
+        {/* title row */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 20, position: "relative" }}>
+          <div style={{ minWidth: 0 }}>
+            <p style={{ fontSize: "0.7rem", fontWeight: 600, letterSpacing: "0.1em", color: "rgba(255,255,255,0.4)", textTransform: "uppercase", marginBottom: 6 }}>
+              Admin · Campaign
+            </p>
+            <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#fff", lineHeight: 1.3, margin: 0 }}>
+              {ad.title}
+            </h1>
           </div>
-        </SectionCard>
-
-        {/* Protocol documents */}
-        <SectionCard
-          title="Protocol Documents"
-          subtitle={protoDocs.length === 0 ? "No documents attached" : `${protoDocs.length} document${protoDocs.length > 1 ? "s" : ""} attached`}
-        >
-          {protoDocs.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "24px 0" }}>
-              <FileText size={28} style={{ color: "var(--color-sidebar-text)", margin: "0 auto 8px", opacity: 0.5 }} />
-              <p style={{ fontSize: "0.82rem", color: "var(--color-sidebar-text)" }}>No protocol documents were uploaded for this campaign.</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {protoDocs.map((doc) => (
-                <div key={doc.id} style={{
-                  display: "flex", alignItems: "center", gap: "12px", padding: "10px 14px",
-                  borderRadius: "8px", border: "1px solid var(--color-card-border)", backgroundColor: "var(--color-card-bg)",
-                }}>
-                  <div style={{ width: "32px", height: "32px", borderRadius: "6px", flexShrink: 0, backgroundColor: "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.12)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <FileText size={14} style={{ color: "var(--color-accent)" }} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--color-input-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.title}</p>
-                    <p style={{ fontSize: "0.72rem", color: "var(--color-sidebar-text)" }}>
-                      {doc.doc_type?.replace(/_/g, " ")}{doc.file_path && ` · ${doc.file_path.split("/").pop()}`}
-                    </p>
-                  </div>
-                  <span style={{ fontSize: "0.65rem", fontWeight: 600, padding: "2px 6px", borderRadius: "4px", backgroundColor: "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.1)", color: "var(--color-accent)", border: "1px solid rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.2)" }}>
-                    Priority {doc.priority}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </SectionCard>
-
-        {/* ── Generate Strategy action (draft status) ───────────────────────── */}
-        {ad.status === "draft" && (
-          <SectionCard
-            title="Generate Marketing Strategy"
-            subtitle="Claude will analyse your company documents and campaign brief to create a tailored strategy"
-          >
-            {genError && (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", borderRadius: "8px", backgroundColor: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", marginBottom: "16px" }}>
-                <AlertCircle size={14} style={{ color: "#ef4444", flexShrink: 0, marginTop: "2px" }} />
-                <p style={{ fontSize: "0.82rem", color: "#ef4444", lineHeight: 1.5 }}>{genError}</p>
-              </div>
-            )}
-            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-              <ActionButton onClick={handleGenerateStrategy} loading={genLoading} icon={<Zap size={14} />}>
-                {genLoading ? "Generating…" : "Generate Strategy with Claude"}
-              </ActionButton>
-              {genLoading
-                ? <InlineProgress progress={genProgress.progress} />
-                : <p style={{ fontSize: "0.78rem", color: "var(--color-sidebar-text)" }}>Uses your trained Curator skill · typical time: 15–30 s</p>
-              }
-            </div>
-          </SectionCard>
-        )}
-
-        {/* ── Strategy viewer ───────────────────────────────────────────────── */}
-        {hasStrategy && (
-          <SectionCard
-            title="AI Marketing Strategy"
-            subtitle="Generated by the Curator AI based on company and protocol documents"
-          >
-            {ad.strategy_json ? (
-              <StrategyViewer strategy={ad.strategy_json} />
-            ) : (
-              <p style={{ fontSize: "0.85rem", color: "var(--color-sidebar-text)" }}>Strategy is being generated…</p>
-            )}
-          </SectionCard>
-        )}
-
-        {/* ── Reviewer pre-processing (strategy_created) ───────────────────── */}
-        {ad.status === "strategy_created" && (
-          <SectionCard
-            title="Submit for Review"
-            subtitle="The Reviewer AI will analyse the strategy and prepare website requirements and ad specifications"
-          >
-            {revError && (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", borderRadius: "8px", backgroundColor: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", marginBottom: "16px" }}>
-                <AlertCircle size={14} style={{ color: "#ef4444", flexShrink: 0, marginTop: "2px" }} />
-                <p style={{ fontSize: "0.82rem", color: "#ef4444", lineHeight: 1.5 }}>{revError}</p>
-              </div>
-            )}
-            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-              <ActionButton onClick={handleSubmitForReview} loading={revLoading} variant="primary" icon={<Send size={14} />}>
-                {revLoading ? "Processing…" : "Submit for AI Review"}
-              </ActionButton>
-              {revLoading && <InlineProgress progress={genProgress.progress} />}
-            </div>
-          </SectionCard>
-        )}
-
-        {/* ── Human review panel ────────────────────────────────────────────── */}
-        {canReview && (
-          <SectionCard
-            title="Submit Your Review"
-            subtitle="Add your human review — approve, request revisions, or flag ethical concerns"
-          >
-            <ReviewPanel adId={id} onSubmitted={handleReviewSubmitted} />
-          </SectionCard>
-        )}
-
-        {/* ── Review history ────────────────────────────────────────────────── */}
-        {hasReviews && reviews.length > 0 && (
-          <SectionCard
-            title="Review History"
-            subtitle={`${reviews.length} review${reviews.length !== 1 ? "s" : ""} on record`}
-          >
-            <div className="space-y-3">
-              {reviews.map((r) => <ReviewCard key={r.id} review={r} />)}
-            </div>
-          </SectionCard>
-        )}
-
-        {/* ── Reviewer output (website_reqs / ad_details) ───────────────────── */}
-        {(ad.website_reqs || ad.ad_details) && (
-          <SectionCard
-            title="Reviewer Output"
-            subtitle="Structured requirements extracted by the Reviewer AI"
-          >
-            <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-
-              {/* Website Requirements */}
-              {ad.website_reqs && (
-                <div>
-                  <p style={{ fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--color-accent)", marginBottom: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
-                    <Globe size={12} /> Website Requirements
-                  </p>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "10px" }}>
-                    {Object.entries(ad.website_reqs).map(([key, val]) => (
-                      <div key={key} style={{
-                        padding: "12px 14px", borderRadius: "10px",
-                        border: "1px solid var(--color-card-border)",
-                        backgroundColor: "var(--color-card-bg)",
-                      }}>
-                        <p style={{ fontSize: "0.72rem", fontWeight: 600, textTransform: "capitalize", color: "var(--color-sidebar-text)", marginBottom: "6px" }}>
-                          {key.replace(/_/g, " ")}
-                        </p>
-                        <GenericValue value={val} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Ad Specifications */}
-              {ad.ad_details && (
-                <div>
-                  <p style={{ fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--color-accent)", marginBottom: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
-                    <Layers size={12} /> Ad Specifications
-                  </p>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "10px" }}>
-                    {Object.entries(ad.ad_details).map(([key, val]) => (
-                      <div key={key} style={{
-                        padding: "12px 14px", borderRadius: "10px",
-                        border: "1px solid var(--color-card-border)",
-                        backgroundColor: "var(--color-card-bg)",
-                      }}>
-                        <p style={{ fontSize: "0.72rem", fontWeight: 600, textTransform: "capitalize", color: "var(--color-sidebar-text)", marginBottom: "6px" }}>
-                          {key.replace(/_/g, " ")}
-                        </p>
-                        <GenericValue value={val} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-            </div>
-          </SectionCard>
-        )}
-
-        {/* ── Generate Ad Creatives ─────────────────────────────────────────── */}
-        {(ad.status === "approved" || ad.status === "published") && (
-          <SectionCard
-            title="Generate Ad Creatives"
-            subtitle="Claude writes copy · Titan Image Generator v2 produces the visuals"
-          >
-            {creativeError && (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", borderRadius: "8px", backgroundColor: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", marginBottom: "16px" }}>
-                <AlertCircle size={14} style={{ color: "#ef4444", flexShrink: 0, marginTop: "2px" }} />
-                <p style={{ fontSize: "0.82rem", color: "#ef4444", lineHeight: 1.5 }}>{creativeError}</p>
-              </div>
-            )}
-            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: ad.output_files?.length ? "24px" : 0 }}>
-              <ActionButton
-                onClick={handleGenerateCreatives}
-                loading={creativeLoading}
-                icon={<Sparkles size={14} />}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            <CampaignStatusBadge status={ad.status} />
+            {role === "admin" && (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                style={{
+                  background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)",
+                  borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", gap: 5,
+                  padding: "6px 12px", color: "#f87171", fontSize: "0.8rem", fontWeight: 500,
+                }}
               >
-                {creativeLoading
-                  ? "Generating…"
-                  : ad.output_files?.length
-                    ? "Regenerate Creatives"
-                    : "Generate Ad Creatives"}
-              </ActionButton>
-              {creativeLoading
-                ? <InlineProgress progress={genProgress.progress} />
-                : !ad.output_files?.length && (
-                    <p style={{ fontSize: "0.78rem", color: "var(--color-sidebar-text)" }}>
-                      Generates copy + images for all ad formats · uses AWS Bedrock Titan
-                    </p>
-                  )
-              }
-            </div>
-            {ad.output_files?.length > 0 && (
-              <CreativesViewer creatives={ad.output_files} />
+                <Trash2 size={13} /> Delete
+              </button>
             )}
-          </SectionCard>
-        )}
-
-        {/* ── Generate Website ──────────────────────────────────────────────── */}
-        {(ad.status === "approved" || ad.status === "published") && ad.ad_type?.includes("website") && (
-          <SectionCard
-            title="Generate Landing Page"
-            subtitle="Claude builds a complete, brand-styled HTML page from your strategy and website requirements"
-          >
-            {websiteError && (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", borderRadius: "8px", backgroundColor: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", marginBottom: "16px" }}>
-                <AlertCircle size={14} style={{ color: "#ef4444", flexShrink: 0, marginTop: "2px" }} />
-                <p style={{ fontSize: "0.82rem", color: "#ef4444", lineHeight: 1.5 }}>{websiteError}</p>
-              </div>
-            )}
-            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: ad.output_url ? "20px" : 0 }}>
-              <ActionButton
-                onClick={handleGenerateWebsite}
-                loading={websiteLoading}
-                icon={<Globe size={14} />}
-              >
-                {websiteLoading
-                  ? "Generating…"
-                  : ad.output_url
-                    ? "Regenerate Website"
-                    : "Generate Website"}
-              </ActionButton>
-              {websiteLoading
-                ? <InlineProgress progress={genProgress.progress} />
-                : !ad.output_url && (
-                    <p style={{ fontSize: "0.78rem", color: "var(--color-sidebar-text)" }}>
-                      Generates a self-contained HTML page · uses brand kit + strategy
-                    </p>
-                  )
-              }
-            </div>
-            {ad.output_url && (
-              <div style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "14px 18px", borderRadius: "10px",
-                border: "1px solid rgba(16,185,129,0.3)",
-                backgroundColor: "rgba(16,185,129,0.06)",
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <Globe size={16} style={{ color: "var(--color-accent)", flexShrink: 0 }} />
-                  <div>
-                    <p style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--color-input-text)" }}>
-                      Landing page ready
-                    </p>
-                    <p style={{ fontSize: "0.72rem", color: "var(--color-sidebar-text)", marginTop: "2px" }}>
-                      Self-contained HTML · brand-styled · responsive
-                    </p>
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: "8px" }}>
-                  <a
-                    href={adsAPI.websitePreviewUrl(id)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      display: "inline-flex", alignItems: "center", gap: "5px",
-                      padding: "7px 14px", borderRadius: "8px", fontSize: "0.8rem", fontWeight: 600,
-                      backgroundColor: "var(--color-accent)", color: "#fff",
-                      textDecoration: "none", border: "none",
-                    }}
-                  >
-                    <Eye size={13} /> Preview
-                  </a>
-                  <a
-                    href={adsAPI.websiteDownloadUrl(id)}
-                    download="landing-page.html"
-                    style={{
-                      display: "inline-flex", alignItems: "center", gap: "5px",
-                      padding: "7px 14px", borderRadius: "8px", fontSize: "0.8rem", fontWeight: 600,
-                      border: "1px solid var(--color-card-border)",
-                      backgroundColor: "var(--color-card-bg)", color: "var(--color-input-text)",
-                      textDecoration: "none",
-                    }}
-                  >
-                    <Download size={13} /> Download
-                  </a>
-                </div>
-              </div>
-            )}
-          </SectionCard>
-        )}
-
-        {/* ── Publish action ────────────────────────────────────────────────── */}
-        {ad.status === "approved" && (
-          <SectionCard
-            title="Publish Campaign"
-            subtitle="Campaign has been approved — ready to go live"
-          >
-            {pubError && (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", borderRadius: "8px", backgroundColor: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", marginBottom: "16px" }}>
-                <AlertCircle size={14} style={{ color: "#ef4444", flexShrink: 0, marginTop: "2px" }} />
-                <p style={{ fontSize: "0.82rem", color: "#ef4444", lineHeight: 1.5 }}>{pubError}</p>
-              </div>
-            )}
-            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-              <ActionButton onClick={handlePublish} loading={pubLoading} icon={<Zap size={14} />}>
-                {pubLoading ? "Publishing…" : "Publish Campaign"}
-              </ActionButton>
-              {pubLoading && <InlineProgress progress={genProgress.progress} />}
-            </div>
-          </SectionCard>
-        )}
-
-        {/* Analytics link */}
-        {isPublished && (
-          <SectionCard title="Analytics" subtitle="Campaign is live — view performance data">
-            <Link to="/admin/analytics" className="btn--accent" style={{ display: "inline-flex" }}>
-              View Analytics
-            </Link>
-          </SectionCard>
-        )}
-
-        {/* Reload button */}
-        <div style={{ paddingBottom: "32px", display: "flex", gap: "10px" }}>
-          <button
-            onClick={() => { setLoading(true); load(); }}
-            className="btn--ghost"
-            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
-          >
-            <RefreshCw size={13} />
-            Refresh
-          </button>
-          <button onClick={() => navigate(-1)} className="btn--ghost">Back</button>
+          </div>
         </div>
 
+        {/* stats row */}
+        <div style={{ display: "flex", gap: 28, flexWrap: "wrap", position: "relative" }}>
+          <div>
+            <p style={{ fontSize: "0.65rem", color: "rgba(255,255,255,0.4)", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 3 }}>Created</p>
+            <p style={{ fontSize: "0.95rem", fontWeight: 700, color: "#fff" }}>{new Date(ad.created_at).toLocaleDateString()}</p>
+          </div>
+          {ad.budget && (
+            <div>
+              <p style={{ fontSize: "0.65rem", color: "rgba(255,255,255,0.4)", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 3 }}>Budget</p>
+              <p style={{ fontSize: "0.95rem", fontWeight: 700, color: "#fff" }}>${ad.budget.toLocaleString()}</p>
+            </div>
+          )}
+          {ad.duration && (
+            <div>
+              <p style={{ fontSize: "0.65rem", color: "rgba(255,255,255,0.4)", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 3 }}>Duration</p>
+              <p style={{ fontSize: "0.95rem", fontWeight: 700, color: "#fff" }}>{ad.duration}</p>
+            </div>
+          )}
+          {ad.platforms?.length > 0 && (
+            <div>
+              <p style={{ fontSize: "0.65rem", color: "rgba(255,255,255,0.4)", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 3 }}>Platforms</p>
+              <p style={{ fontSize: "0.95rem", fontWeight: 700, color: "#fff" }}>{ad.platforms.join(" · ")}</p>
+            </div>
+          )}
+          {ad.ad_type?.length > 0 && (
+            <div>
+              <p style={{ fontSize: "0.65rem", color: "rgba(255,255,255,0.4)", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 3 }}>Type</p>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {ad.ad_type.map((t) => <AdTypeChip key={t} type={t} />)}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* ── Page tab navigation ── */}
+      <PageTabBar active={pageTab} onChange={setPageTab} showQuestionnaireDot={showQDot} />
+
+      {/* ══ OVERVIEW tab ══════════════════════════════════════════════════════ */}
+      {pageTab === "overview" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+
+          <SectionCard title="Campaign Progress">
+            <StatusTimeline status={ad.status} />
+          </SectionCard>
+
+          <SectionCard title="Campaign Details">
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "20px" }}>
+              <div>
+                <p style={{ fontSize: "0.72rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-sidebar-text)", marginBottom: "6px" }}>Campaign Type</p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                  {ad.ad_type?.map((t) => <AdTypeChip key={t} type={t} />)}
+                </div>
+              </div>
+              {(ad.campaign_category || qualifies) && (
+                <div>
+                  <p style={{ fontSize: "0.72rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-sidebar-text)", marginBottom: "6px" }}>Category</p>
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", gap: "5px",
+                    padding: "4px 10px", borderRadius: "999px", fontSize: "0.75rem", fontWeight: 500,
+                    border: "1px solid var(--color-card-border)", backgroundColor: "var(--color-card-bg)",
+                    color: "var(--color-input-text)", textTransform: "capitalize",
+                  }}>
+                    <ClipboardList size={11} style={{ color: "var(--color-accent)" }} />
+                    {ad.campaign_category ? ad.campaign_category.replace("_", " ") : "hiring / recruitment"}
+                  </span>
+                </div>
+              )}
+              {ad.target_audience && Object.values(ad.target_audience).some(Boolean) && (
+                <div>
+                  <p style={{ fontSize: "0.72rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-sidebar-text)", marginBottom: "6px" }}>Target Audience</p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                    {ad.target_audience.age_range && <p style={{ fontSize: "0.82rem", color: "var(--color-input-text)" }}>Age: {ad.target_audience.age_range}</p>}
+                    {ad.target_audience.gender    && <p style={{ fontSize: "0.82rem", color: "var(--color-input-text)" }}>Gender: {ad.target_audience.gender}</p>}
+                    {ad.target_audience.interests && <p style={{ fontSize: "0.82rem", color: "var(--color-input-text)" }}>Interests: {ad.target_audience.interests}</p>}
+                  </div>
+                </div>
+              )}
+            </div>
+          </SectionCard>
+
+          {/* Protocol Docs + Budget Distribution — 2-col when both exist */}
+          {(() => {
+            const hasBudget = !!(ad.strategy_json?.budget_allocation && Object.keys(ad.strategy_json.budget_allocation).length > 0);
+            return (
+              <div style={{ display: "grid", gridTemplateColumns: hasBudget ? "1fr 1fr" : "1fr", gap: 16, alignItems: "start" }}>
+                <SectionCard
+                  title="Protocol Documents"
+                  subtitle={protoDocs.length === 0 ? "No documents attached" : `${protoDocs.length} document${protoDocs.length > 1 ? "s" : ""} attached`}
+                >
+                  {protoDocs.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "24px 0" }}>
+                      <FileText size={28} style={{ color: "var(--color-sidebar-text)", margin: "0 auto 8px", opacity: 0.5 }} />
+                      <p style={{ fontSize: "0.82rem", color: "var(--color-sidebar-text)" }}>No protocol documents were uploaded for this campaign.</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {protoDocs.map((doc) => (
+                        <div
+                          key={doc.id}
+                          onClick={() => doc.file_path && setPreviewDoc(doc)}
+                          style={{
+                            display: "flex", alignItems: "center", gap: "12px", padding: "10px 14px",
+                            borderRadius: "8px", border: "1px solid var(--color-card-border)", backgroundColor: "var(--color-card-bg)",
+                            cursor: doc.file_path ? "pointer" : "default", transition: "border-color 0.15s",
+                          }}
+                          onMouseEnter={(e) => { if (doc.file_path) e.currentTarget.style.borderColor = "var(--color-accent)"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--color-card-border)"; }}
+                        >
+                          <div style={{ width: "32px", height: "32px", borderRadius: "6px", flexShrink: 0, backgroundColor: "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.12)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <FileText size={14} style={{ color: "var(--color-accent)" }} />
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--color-input-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.title}</p>
+                            <p style={{ fontSize: "0.72rem", color: "var(--color-sidebar-text)" }}>
+                              {doc.doc_type?.replace(/_/g, " ")}{doc.file_path && ` · ${doc.file_path.split("/").pop()}`}
+                            </p>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                            {doc.priority && (
+                              <span style={{ fontSize: "0.65rem", fontWeight: 600, padding: "2px 6px", borderRadius: "4px", backgroundColor: "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.1)", color: "var(--color-accent)", border: "1px solid rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.2)" }}>
+                                Priority {doc.priority}
+                              </span>
+                            )}
+                            {doc.file_path && <Eye size={13} style={{ color: "var(--color-sidebar-text)" }} />}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </SectionCard>
+                {hasBudget && (
+                  <SectionCard title="Budget Distribution">
+                    <BudgetDonut strategy={ad.strategy_json} />
+                  </SectionCard>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Questionnaire callout */}
+          {qualifies && (
+            <div
+              onClick={() => setPageTab("questionnaire")}
+              style={{
+                display: "flex", alignItems: "center", gap: 14,
+                padding: "18px 22px", borderRadius: 12, cursor: "pointer",
+                border: questEmpty ? "1px solid rgba(245,158,11,0.4)" : "1px solid var(--color-card-border)",
+                backgroundColor: questEmpty ? "rgba(245,158,11,0.05)" : "var(--color-card-bg)",
+                transition: "border-color 0.15s",
+              }}
+            >
+              <div style={{
+                width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                backgroundColor: questEmpty ? "rgba(245,158,11,0.12)" : "rgba(var(--color-accent-r),var(--color-accent-g),var(--color-accent-b),0.1)",
+              }}>
+                <ClipboardList size={18} style={{ color: questEmpty ? "#f59e0b" : "var(--color-accent)" }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--color-input-text)", margin: 0 }}>
+                  Eligibility Questionnaire
+                  {questEmpty && <span style={{ marginLeft: 8, fontSize: "0.72rem", fontWeight: 600, color: "#f59e0b" }}>· Needs setup</span>}
+                </p>
+                <p style={{ fontSize: "0.75rem", color: "var(--color-sidebar-text)", marginTop: 3 }}>
+                  {questEmpty ? "No questions yet — click to set up" : `${ad.questionnaire.questions.length} question${ad.questionnaire.questions.length !== 1 ? "s" : ""} ready`}
+                </p>
+              </div>
+              <ArrowLeft size={14} style={{ color: "var(--color-sidebar-text)", transform: "rotate(180deg)" }} />
+            </div>
+          )}
+
+        </div>
+      )}
+
+      {/* ══ STRATEGY tab ══════════════════════════════════════════════════════ */}
+      {pageTab === "strategy" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+
+          {/* Generate (draft) */}
+          {ad.status === "draft" && (
+            <SectionCard
+              title="Generate Marketing Strategy"
+              subtitle="Claude will analyse your company documents and campaign brief to create a tailored strategy"
+            >
+              {genError && (
+                <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", borderRadius: "8px", backgroundColor: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", marginBottom: "16px" }}>
+                  <AlertCircle size={14} style={{ color: "#ef4444", flexShrink: 0, marginTop: "2px" }} />
+                  <p style={{ fontSize: "0.82rem", color: "#ef4444", lineHeight: 1.5 }}>{genError}</p>
+                </div>
+              )}
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <ActionButton onClick={handleGenerateStrategy} loading={genLoading} icon={<Zap size={14} />}>
+                  {genLoading ? "Generating…" : "Generate Strategy with Claude"}
+                </ActionButton>
+                {genLoading
+                  ? <InlineProgress progress={genProgress.progress} />
+                  : <p style={{ fontSize: "0.78rem", color: "var(--color-sidebar-text)" }}>Uses your trained Curator skill · typical time: 15–30 s</p>
+                }
+              </div>
+            </SectionCard>
+          )}
+
+          {/* Strategy viewer */}
+          {hasStrategy && (
+            <SectionCard
+              title="AI Marketing Strategy"
+              subtitle="Generated by the Curator AI based on company and protocol documents"
+            >
+              {ad.strategy_json ? (
+                <StrategyViewer strategy={ad.strategy_json} />
+              ) : (
+                <p style={{ fontSize: "0.85rem", color: "var(--color-sidebar-text)" }}>Strategy is being generated…</p>
+              )}
+            </SectionCard>
+          )}
+
+          {/* Regenerate (admin) */}
+          {hasStrategy && role === "admin" && (
+            <SectionCard
+              title="Regenerate Strategy"
+              subtitle="Replace the current strategy with a new AI-generated one using your instructions"
+            >
+              {!regenOpen ? (
+                <button
+                  onClick={() => setRegenOpen(true)}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: "8px",
+                    background: "none", border: "1px solid var(--color-card-border)",
+                    borderRadius: "8px", padding: "7px 14px", cursor: "pointer",
+                    color: "var(--color-sidebar-text)", fontSize: "0.8rem", fontWeight: 500,
+                  }}
+                >
+                  <Sparkles size={13} style={{ color: "var(--color-accent)" }} />
+                  Rewrite with Claude…
+                </button>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", borderRadius: "8px", backgroundColor: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.3)" }}>
+                    <Sparkles size={14} style={{ color: "#f59e0b", flexShrink: 0, marginTop: 2 }} />
+                    <p style={{ fontSize: "0.78rem", color: "var(--color-sidebar-text)", lineHeight: 1.5 }}>
+                      This will instruct Claude to <strong style={{ color: "var(--color-input-text)" }}>replace the entire strategy</strong> using your instructions as guidance. The current strategy will be overwritten and the change will appear in the audit trail.
+                    </p>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--color-sidebar-text)", display: "block", marginBottom: "6px" }}>Instructions for Claude *</label>
+                    <textarea
+                      style={{
+                        width: "100%", padding: "8px 12px", borderRadius: "8px", fontSize: "0.85rem",
+                        border: "1px solid var(--color-card-border)", backgroundColor: "var(--color-input-bg)",
+                        color: "var(--color-input-text)", outline: "none", boxSizing: "border-box",
+                        resize: "vertical", minHeight: "110px", fontFamily: "inherit",
+                      }}
+                      value={regenInstr}
+                      onChange={(e) => setRegenInstr(e.target.value)}
+                      placeholder="e.g. Shift focus from social media to B2B channels. Reduce influencer spend to under 10%. Keep the same target audience but adopt a more professional tone."
+                    />
+                  </div>
+                  <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={regenConfirmed}
+                      onChange={(e) => setRegenConfirmed(e.target.checked)}
+                      style={{ width: 15, height: 15, accentColor: "var(--color-accent)", cursor: "pointer" }}
+                    />
+                    <span style={{ fontSize: "0.82rem", color: "var(--color-input-text)" }}>
+                      I understand the current strategy will be permanently replaced
+                    </span>
+                  </label>
+                  {regenError && (
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 14px", borderRadius: "8px", backgroundColor: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)" }}>
+                      <AlertCircle size={14} style={{ color: "#ef4444", flexShrink: 0 }} />
+                      <p style={{ fontSize: "0.82rem", color: "#ef4444" }}>{regenError}</p>
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                    <ActionButton onClick={handleRegenStrategy} loading={regenLoading} disabled={!regenConfirmed} icon={<Sparkles size={14} />}>
+                      {regenLoading ? "Re-writing… (15–30 s)" : "Trigger AI Re-Strategy"}
+                    </ActionButton>
+                    {regenLoading
+                      ? <InlineProgress progress={genProgress.progress} />
+                      : (
+                        <button
+                          onClick={() => { setRegenOpen(false); setRegenError(null); setRegenInstr(""); setRegenConfirmed(false); }}
+                          className="btn--ghost"
+                          style={{ fontSize: "0.8rem" }}
+                        >
+                          Cancel
+                        </button>
+                      )
+                    }
+                  </div>
+                </div>
+              )}
+            </SectionCard>
+          )}
+
+          {/* Submit for review */}
+          {ad.status === "strategy_created" && (
+            <SectionCard
+              title="Submit for Review"
+              subtitle="The Reviewer AI will analyse the strategy and prepare website requirements and ad specifications"
+            >
+              {revError && (
+                <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", borderRadius: "8px", backgroundColor: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", marginBottom: "16px" }}>
+                  <AlertCircle size={14} style={{ color: "#ef4444", flexShrink: 0, marginTop: "2px" }} />
+                  <p style={{ fontSize: "0.82rem", color: "#ef4444", lineHeight: 1.5 }}>{revError}</p>
+                </div>
+              )}
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <ActionButton onClick={handleSubmitForReview} loading={revLoading} variant="primary" icon={<Send size={14} />}>
+                  {revLoading ? "Processing…" : "Submit for AI Review"}
+                </ActionButton>
+                {revLoading && <InlineProgress progress={genProgress.progress} />}
+              </div>
+            </SectionCard>
+          )}
+
+          {/* Empty state */}
+          {!hasStrategy && ad.status !== "draft" && (
+            <div style={{ textAlign: "center", padding: "48px 0" }}>
+              <Layers size={32} style={{ color: "var(--color-card-border)", margin: "0 auto 12px" }} />
+              <p style={{ color: "var(--color-sidebar-text)", fontSize: "0.9rem" }}>Strategy not yet generated for this campaign.</p>
+            </div>
+          )}
+
+        </div>
+      )}
+
+      {/* ══ QUESTIONNAIRE tab ═════════════════════════════════════════════════ */}
+      {pageTab === "questionnaire" && (
+        <div>
+          {qualifies ? (
+            <>
+              <div style={{ marginBottom: 20 }}>
+                <h2 style={{ fontSize: "1rem", fontWeight: 700, color: "var(--color-input-text)", margin: 0 }}>
+                  Eligibility Questionnaire
+                </h2>
+                <p style={{ fontSize: "0.78rem", color: "var(--color-sidebar-text)", marginTop: 4 }}>
+                  {ad.campaign_category ? ad.campaign_category.replace("_", " ") + " campaign" : "Detected from campaign title"} — define the questions participants will answer
+                </p>
+              </div>
+              <QuestionnaireSection
+                adId={id}
+                questionnaire={ad.questionnaire}
+                readOnly={false}
+                onSaved={load}
+              />
+            </>
+          ) : (
+            <div style={{ textAlign: "center", padding: "48px 0" }}>
+              <ClipboardList size={32} style={{ color: "var(--color-card-border)", margin: "0 auto 12px" }} />
+              <p style={{ color: "var(--color-sidebar-text)", fontSize: "0.9rem" }}>This campaign type does not require a questionnaire.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══ REVIEW tab ════════════════════════════════════════════════════════ */}
+      {pageTab === "review" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+
+          {canReview && (
+            <SectionCard
+              title="Submit Your Review"
+              subtitle="Add your human review — approve, request revisions, or flag ethical concerns"
+            >
+              <ReviewPanel adId={id} onSubmitted={handleReviewSubmitted} />
+            </SectionCard>
+          )}
+
+          {(ad.website_reqs || ad.ad_details) && (
+            <SectionCard title="Reviewer Output" subtitle="Structured requirements extracted by the Reviewer AI">
+              <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+                {ad.website_reqs && (
+                  <div>
+                    <p style={{ fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--color-accent)", marginBottom: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
+                      <Globe size={12} /> Website Requirements
+                    </p>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "10px" }}>
+                      {Object.entries(ad.website_reqs).map(([key, val]) => (
+                        <div key={key} style={{ padding: "12px 14px", borderRadius: "10px", border: "1px solid var(--color-card-border)", backgroundColor: "var(--color-card-bg)" }}>
+                          <p style={{ fontSize: "0.72rem", fontWeight: 600, textTransform: "capitalize", color: "var(--color-sidebar-text)", marginBottom: "6px" }}>{key.replace(/_/g, " ")}</p>
+                          <GenericValue value={val} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {ad.ad_details && (
+                  <div>
+                    <p style={{ fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--color-accent)", marginBottom: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
+                      <Layers size={12} /> Ad Specifications
+                    </p>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "10px" }}>
+                      {Object.entries(ad.ad_details).map(([key, val]) => (
+                        <div key={key} style={{ padding: "12px 14px", borderRadius: "10px", border: "1px solid var(--color-card-border)", backgroundColor: "var(--color-card-bg)" }}>
+                          <p style={{ fontSize: "0.72rem", fontWeight: 600, textTransform: "capitalize", color: "var(--color-sidebar-text)", marginBottom: "6px" }}>{key.replace(/_/g, " ")}</p>
+                          <GenericValue value={val} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </SectionCard>
+          )}
+
+          {!canReview && !(ad.website_reqs || ad.ad_details) && (
+            <div style={{ textAlign: "center", padding: "48px 0" }}>
+              <ClipboardCheck size={32} style={{ color: "var(--color-card-border)", margin: "0 auto 12px" }} />
+              <p style={{ color: "var(--color-sidebar-text)", fontSize: "0.9rem" }}>
+                Campaign is <strong style={{ color: "var(--color-input-text)" }}>{ad.status}</strong> — no review activity yet.
+              </p>
+            </div>
+          )}
+
+        </div>
+      )}
+
+      {/* ══ HISTORY tab ═══════════════════════════════════════════════════════ */}
+      {pageTab === "history" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+          {reviews.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "48px 0" }}>
+              <History size={32} style={{ color: "var(--color-card-border)", margin: "0 auto 12px" }} />
+              <p style={{ color: "var(--color-sidebar-text)", fontSize: "0.9rem" }}>No review history yet.</p>
+            </div>
+          ) : (
+            <SectionCard
+              title="Review History"
+              subtitle={`${reviews.length} entr${reviews.length !== 1 ? "ies" : "y"} on record`}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {reviews.map((r) => <ReviewCard key={r.id} review={r} />)}
+              </div>
+            </SectionCard>
+          )}
+        </div>
+      )}
+
+      {/* ══ PUBLISH tab ═══════════════════════════════════════════════════════ */}
+      {pageTab === "publish" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+
+          {/* Generate Ad Creatives */}
+          {(ad.status === "approved" || ad.status === "published") && role === "publisher" && (
+            <SectionCard
+              title="Generate Ad Creatives"
+              subtitle="Claude writes copy · Titan Image Generator v2 produces the visuals"
+            >
+              {creativeError && (
+                <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", borderRadius: "8px", backgroundColor: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", marginBottom: "16px" }}>
+                  <AlertCircle size={14} style={{ color: "#ef4444", flexShrink: 0, marginTop: "2px" }} />
+                  <p style={{ fontSize: "0.82rem", color: "#ef4444", lineHeight: 1.5 }}>{creativeError}</p>
+                </div>
+              )}
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: ad.output_files?.length ? "24px" : 0 }}>
+                <ActionButton onClick={handleGenerateCreatives} loading={creativeLoading} icon={<Sparkles size={14} />}>
+                  {creativeLoading ? "Generating…" : ad.output_files?.length ? "Regenerate Creatives" : "Generate Ad Creatives"}
+                </ActionButton>
+                {creativeLoading
+                  ? <InlineProgress progress={genProgress.progress} />
+                  : !ad.output_files?.length && (
+                      <p style={{ fontSize: "0.78rem", color: "var(--color-sidebar-text)" }}>
+                        Generates copy + images for all ad formats · uses AWS Bedrock Titan
+                      </p>
+                    )
+                }
+              </div>
+              {ad.output_files?.length > 0 && <CreativesViewer creatives={ad.output_files} />}
+            </SectionCard>
+          )}
+
+          {/* Generate Website */}
+          {(ad.status === "approved" || ad.status === "published") && ad.ad_type?.includes("website") && role === "publisher" && (
+            <SectionCard
+              title="Generate Landing Page"
+              subtitle="Claude builds a complete, brand-styled HTML page from your strategy and website requirements"
+            >
+              {websiteError && (
+                <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", borderRadius: "8px", backgroundColor: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", marginBottom: "16px" }}>
+                  <AlertCircle size={14} style={{ color: "#ef4444", flexShrink: 0, marginTop: "2px" }} />
+                  <p style={{ fontSize: "0.82rem", color: "#ef4444", lineHeight: 1.5 }}>{websiteError}</p>
+                </div>
+              )}
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: ad.output_url ? "20px" : 0 }}>
+                <ActionButton onClick={handleGenerateWebsite} loading={websiteLoading} icon={<Globe size={14} />}>
+                  {websiteLoading ? "Generating…" : ad.output_url ? "Regenerate Website" : "Generate Website"}
+                </ActionButton>
+                {websiteLoading
+                  ? <InlineProgress progress={genProgress.progress} />
+                  : !ad.output_url && (
+                      <p style={{ fontSize: "0.78rem", color: "var(--color-sidebar-text)" }}>
+                        Generates a self-contained HTML page · uses brand kit + strategy
+                      </p>
+                    )
+                }
+              </div>
+              {ad.output_url && (
+                <div style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "14px 18px", borderRadius: "10px",
+                  border: "1px solid rgba(16,185,129,0.3)", backgroundColor: "rgba(16,185,129,0.06)",
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <Globe size={16} style={{ color: "var(--color-accent)", flexShrink: 0 }} />
+                    <div>
+                      <p style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--color-input-text)" }}>Landing page ready</p>
+                      <p style={{ fontSize: "0.72rem", color: "var(--color-sidebar-text)", marginTop: "2px" }}>Self-contained HTML · brand-styled · responsive</p>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <a href={adsAPI.websitePreviewUrl(id)} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "7px 14px", borderRadius: "8px", fontSize: "0.8rem", fontWeight: 600, backgroundColor: "var(--color-accent)", color: "#fff", textDecoration: "none", border: "none" }}>
+                      <Eye size={13} /> Preview
+                    </a>
+                    <a href={adsAPI.websiteDownloadUrl(id)} download="landing-page.html" style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "7px 14px", borderRadius: "8px", fontSize: "0.8rem", fontWeight: 600, border: "1px solid var(--color-card-border)", backgroundColor: "var(--color-card-bg)", color: "var(--color-input-text)", textDecoration: "none" }}>
+                      <Download size={13} /> Download
+                    </a>
+                  </div>
+                </div>
+              )}
+            </SectionCard>
+          )}
+
+          {/* Publish */}
+          {ad.status === "approved" && (
+            <SectionCard title="Publish Campaign" subtitle="Campaign has been approved — ready to go live">
+              {pubError && (
+                <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", borderRadius: "8px", backgroundColor: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", marginBottom: "16px" }}>
+                  <AlertCircle size={14} style={{ color: "#ef4444", flexShrink: 0, marginTop: "2px" }} />
+                  <p style={{ fontSize: "0.82rem", color: "#ef4444", lineHeight: 1.5 }}>{pubError}</p>
+                </div>
+              )}
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <ActionButton onClick={handlePublish} loading={pubLoading} icon={<Zap size={14} />}>
+                  {pubLoading ? "Publishing…" : "Publish Campaign"}
+                </ActionButton>
+                {pubLoading && <InlineProgress progress={genProgress.progress} />}
+              </div>
+            </SectionCard>
+          )}
+
+          {/* Analytics */}
+          {isPublished && (
+            <SectionCard title="Analytics" subtitle="Campaign is live — view performance data">
+              <Link to="/admin/analytics" className="btn--accent" style={{ display: "inline-flex" }}>
+                View Analytics
+              </Link>
+            </SectionCard>
+          )}
+
+          {/* Empty state */}
+          {!isPublished && ad.status !== "approved" && !(role === "publisher" && (ad.status === "published")) && (
+            <div style={{ textAlign: "center", padding: "48px 0" }}>
+              <Zap size={32} style={{ color: "var(--color-card-border)", margin: "0 auto 12px" }} />
+              <p style={{ color: "var(--color-sidebar-text)", fontSize: "0.9rem" }}>
+                Campaign must be <strong style={{ color: "var(--color-input-text)" }}>approved</strong> before publishing.
+              </p>
+            </div>
+          )}
+
+        </div>
+      )}
+
+      {/* ── Footer refresh ── */}
+      <div style={{ paddingTop: 32, paddingBottom: 24 }}>
+        <button
+          onClick={() => { setLoading(true); load(); }}
+          className="btn--ghost"
+          style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "0.8rem" }}
+        >
+          <RefreshCw size={13} /> Refresh
+        </button>
+      </div>
+
     </PageWithSidebar>
+
+    {previewDoc && <DocPreviewModal doc={previewDoc} adId={id} onClose={() => setPreviewDoc(null)} />}
+    </>
   );
 }
