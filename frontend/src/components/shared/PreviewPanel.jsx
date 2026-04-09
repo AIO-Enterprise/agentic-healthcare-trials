@@ -424,7 +424,7 @@ export default function PreviewPanel({ ads }) {
                 <button
                   onClick={() => handleRegen("creatives")}
                   disabled={!!regenState}
-                  className="btn--accent"
+                  className={previewTab === "creatives" ? "btn--accent" : "btn--ghost"}
                   style={{ display: "inline-flex", alignItems: "center", gap: 7 }}
                 >
                   {regenState === "creatives"
@@ -440,7 +440,7 @@ export default function PreviewPanel({ ads }) {
                 <button
                   onClick={() => handleRegen("website")}
                   disabled={!!regenState}
-                  className="btn--ghost"
+                  className={previewTab === "website" ? "btn--accent" : "btn--ghost"}
                 >
                   {regenState === "website"
                     ? <Loader2 size={14} style={{ animation: "spin 0.75s linear infinite" }} />
