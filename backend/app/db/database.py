@@ -14,7 +14,13 @@ from app.core.config import settings
 
 _is_postgres = settings.DATABASE_URL.startswith("postgresql")
 _connect_args = {"ssl": "require"} if _is_postgres else {}
-engine = create_async_engine(settings.DATABASE_URL, echo=settings.DEBUG, connect_args=_connect_args)
+_pool_kwargs = {"pool_size": 10, "max_overflow": 20} if _is_postgres else {}
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    echo=settings.DEBUG,
+    connect_args=_connect_args,
+    **_pool_kwargs,
+)
 
 async_session_factory = async_sessionmaker(
     engine,
@@ -69,6 +75,8 @@ async def init_db():
             _sqlite_cols = [
                 "ALTER TABLE chat_sessions ADD COLUMN updated_at DATETIME;",
                 "ALTER TABLE advertisement_documents ADD COLUMN content TEXT;",
+                "ALTER TABLE company_documents ADD COLUMN priority INTEGER DEFAULT 0;",
+                "ALTER TABLE company_documents ADD COLUMN version INTEGER DEFAULT 1;",
                 "ALTER TABLE advertisements ADD COLUMN campaign_category VARCHAR(64);",
                 "ALTER TABLE advertisements ADD COLUMN questionnaire JSON;",
                 "ALTER TABLE advertisements ADD COLUMN duration VARCHAR(128);",
@@ -90,10 +98,11 @@ async def init_db():
                 except Exception:
                     pass  # column already exists
 
-            # Migrate old role names to new ones.
-            await conn.execute(_sql("UPDATE users SET role = 'STUDY_COORDINATOR' WHERE role = 'ADMIN';"))
-            await conn.execute(_sql("UPDATE users SET role = 'PROJECT_MANAGER' WHERE role = 'REVIEWER';"))
-            await conn.execute(_sql("UPDATE users SET role = 'ETHICS_MANAGER' WHERE role = 'ETHICS_REVIEWER';"))
+            # Normalise role column to enum member NAMES (what SQLAlchemy stores).
+            await conn.execute(_sql("UPDATE users SET role = 'STUDY_COORDINATOR' WHERE role IN ('ADMIN', 'study_coordinator');"))
+            await conn.execute(_sql("UPDATE users SET role = 'PROJECT_MANAGER'   WHERE role IN ('REVIEWER', 'project_manager');"))
+            await conn.execute(_sql("UPDATE users SET role = 'ETHICS_MANAGER'    WHERE role IN ('ETHICS_REVIEWER', 'ethics_manager');"))
+            await conn.execute(_sql("UPDATE users SET role = 'PUBLISHER'         WHERE role = 'publisher';"))
             return
 
         # ── PostgreSQL upgrade migrations ─────────────────────────────────────
@@ -101,6 +110,10 @@ async def init_db():
 
         await _add_column_if_missing(conn,
             "ALTER TABLE advertisement_documents ADD COLUMN IF NOT EXISTS content TEXT;")
+        await _add_column_if_missing(conn,
+            "ALTER TABLE company_documents ADD COLUMN IF NOT EXISTS priority INTEGER DEFAULT 0;")
+        await _add_column_if_missing(conn,
+            "ALTER TABLE company_documents ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1;")
         await _add_column_if_missing(conn,
             "ALTER TABLE advertisements ADD COLUMN IF NOT EXISTS campaign_category VARCHAR(64);")
         await _add_column_if_missing(conn,
@@ -169,16 +182,11 @@ async def init_db():
                 except Exception:
                     pass  # value already exists
 
-        # Migrate old role names to new ones.
+        # Normalise role column to enum member NAMES (what SQLAlchemy stores).
         try:
-            await conn.execute(_sql(
-                "UPDATE users SET role = 'STUDY_COORDINATOR' WHERE role = 'ADMIN';"
-            ))
-            await conn.execute(_sql(
-                "UPDATE users SET role = 'PROJECT_MANAGER' WHERE role = 'REVIEWER';"
-            ))
-            await conn.execute(_sql(
-                "UPDATE users SET role = 'ETHICS_MANAGER' WHERE role = 'ETHICS_REVIEWER';"
-            ))
+            await conn.execute(_sql("UPDATE users SET role = 'STUDY_COORDINATOR' WHERE role IN ('ADMIN', 'study_coordinator');"))
+            await conn.execute(_sql("UPDATE users SET role = 'PROJECT_MANAGER'   WHERE role IN ('REVIEWER', 'project_manager');"))
+            await conn.execute(_sql("UPDATE users SET role = 'ETHICS_MANAGER'    WHERE role IN ('ETHICS_REVIEWER', 'ethics_manager');"))
+            await conn.execute(_sql("UPDATE users SET role = 'PUBLISHER'         WHERE role = 'publisher';"))
         except Exception:
             pass
