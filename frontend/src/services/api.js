@@ -446,6 +446,30 @@ export const adsAPI = {
   // No auth required — designed for embedded landing page use.
   getVoiceSessionToken: (adId) =>
     request(`/advertisements/${adId}/voice-session/token`),
+
+  // ── Meta Ad Management ────────────────────────────────────────────────────
+  // List live ads for a campaign (fetched from Meta API)
+  listMetaAds: (adId) =>
+    request(`/advertisements/${adId}/meta-ads`),
+
+  // Toggle ACTIVE/PAUSED or update creative copy
+  updateMetaAd: (adId, metaAdId, data) =>
+    request(`/advertisements/${adId}/meta-ads/${metaAdId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  // Delete a Meta ad
+  deleteMetaAd: (adId, metaAdId) =>
+    request(`/advertisements/${adId}/meta-ads/${metaAdId}`, { method: "DELETE" }),
+
+  // Fetch insights from Meta and persist in AdAnalytics
+  fetchMetaInsights: (adId, datePreset = "last_30d") =>
+    request(`/advertisements/${adId}/meta-insights?date_preset=${datePreset}`),
+
+  // AI-generated schedule suggestions
+  getScheduleSuggestions: (adId) =>
+    request(`/advertisements/${adId}/schedule-suggestions`),
 };
 
 // ─── Platform Connections (Meta OAuth) ───────────────────────────────────────
