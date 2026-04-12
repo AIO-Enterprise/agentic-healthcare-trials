@@ -332,7 +332,10 @@ export const adsAPI = {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(err.detail || `Protocol document upload failed (HTTP ${res.status})`);
+        const detail = Array.isArray(err.detail)
+          ? err.detail.map((d) => `${(d.loc || []).slice(-1)[0] ?? ""}: ${d.msg}`).join("; ")
+          : (err.detail ? String(err.detail) : `Protocol document upload failed (HTTP ${res.status})`);
+        throw new Error(detail);
       }
       return res.json();
     };
@@ -493,6 +496,14 @@ export const adsAPI = {
   // No auth required — designed for embedded landing page use.
   getVoiceSessionToken: (adId) =>
     request(`/advertisements/${adId}/voice-session/token`),
+
+  // Trigger an outbound phone call via ElevenLabs voice agent.
+  // Body: { phone: "+15551234567" }
+  requestVoiceCall: (adId, body) =>
+    request(`/advertisements/${adId}/voice-call/request`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   // ── Meta Ad Management ────────────────────────────────────────────────────
   // List live ads for a campaign (fetched from Meta API)

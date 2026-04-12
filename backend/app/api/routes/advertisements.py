@@ -14,9 +14,12 @@ Protocol documents (campaign-specific) are stored separately from company docume
 
 import asyncio
 import base64
+import json
 import logging
 import os
 import mimetypes
+import shutil
+import tempfile
 import uuid as uuid_mod
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import FileResponse
@@ -25,6 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.orm.attributes import flag_modified
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel, field_validator
 from app.db.database import get_db
 from app.models.models import (
     User, UserRole, Advertisement, AdStatus, Review,
@@ -46,10 +50,35 @@ from app.services.storage.extractor import extract_text, url_to_disk_path, BACKE
 router = APIRouter(prefix="/advertisements", tags=["Advertisements"])
 logger = logging.getLogger(__name__)
 
-# In-memory store for chunked uploads.
-# Keyed by upload_id (UUID string). Each entry holds metadata and received chunks.
-# Safe with single-worker uvicorn; data is lost on restart (uploads are short-lived).
-_upload_sessions: Dict[str, Any] = {}
+# ── Chunked-upload session storage ───────────────────────────────────────────
+# Sessions are stored as temp files so they survive uvicorn --reload restarts
+# and work correctly with multiple workers (shared filesystem).
+# Each session gets a directory: <SESSIONS_DIR>/<upload_id>/
+#   meta.json   — session metadata (ad_id, company_id, doc_type, …)
+#   chunk_N.bin — raw bytes for chunk N (written as chunks arrive)
+
+_SESSIONS_DIR = os.path.join(tempfile.gettempdir(), "ad_upload_sessions")
+os.makedirs(_SESSIONS_DIR, exist_ok=True)
+
+
+def _session_dir(upload_id: str) -> str:
+    return os.path.join(_SESSIONS_DIR, upload_id)
+
+
+def _load_session_meta(upload_id: str) -> Dict[str, Any] | None:
+    meta_path = os.path.join(_session_dir(upload_id), "meta.json")
+    try:
+        with open(meta_path, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def _delete_session(upload_id: str) -> None:
+    try:
+        shutil.rmtree(_session_dir(upload_id), ignore_errors=True)
+    except Exception:
+        pass
 
 ALLOWED_PROTOCOL_TYPES = {
     "application/pdf",
@@ -313,7 +342,9 @@ async def start_document_upload(
         )
 
     upload_id = str(uuid_mod.uuid4())
-    _upload_sessions[upload_id] = {
+    sess_dir = _session_dir(upload_id)
+    os.makedirs(sess_dir, exist_ok=True)
+    meta = {
         "ad_id":        ad_id,
         "company_id":   user.company_id,
         "doc_type":     doc_type,
@@ -321,8 +352,9 @@ async def start_document_upload(
         "filename":     filename,
         "content_type": content_type,
         "total_chunks": total_chunks,
-        "chunks":       {},   # chunk_index -> bytes
     }
+    with open(os.path.join(sess_dir, "meta.json"), "w") as f:
+        json.dump(meta, f)
     return {"upload_id": upload_id}
 
 
@@ -335,14 +367,18 @@ async def upload_document_chunk(
     user: User = Depends(require_roles([UserRole.STUDY_COORDINATOR])),
 ):
     """Receive one base64-encoded chunk for an in-progress upload."""
-    session = _upload_sessions.get(upload_id)
+    session = _load_session_meta(upload_id)
     if not session or session["ad_id"] != ad_id or session["company_id"] != user.company_id:
         raise HTTPException(status_code=404, detail="Upload session not found")
 
     try:
-        session["chunks"][chunk_index] = base64.b64decode(data)
+        chunk_bytes = base64.b64decode(data)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid base64 chunk data")
+
+    chunk_path = os.path.join(_session_dir(upload_id), f"chunk_{chunk_index}.bin")
+    with open(chunk_path, "wb") as f:
+        f.write(chunk_bytes)
 
     return {"received": chunk_index}
 
@@ -350,22 +386,27 @@ async def upload_document_chunk(
 @router.post("/{ad_id}/documents/finalize", response_model=AdvertisementDocumentOut)
 async def finalize_document_upload(
     ad_id:     str,
-    upload_id: str = Body(...),
+    upload_id: str = Body(..., embed=True),
     user: User = Depends(require_roles([UserRole.STUDY_COORDINATOR])),
     db: AsyncSession = Depends(get_db),
 ):
     """Assemble all chunks and create the AdvertisementDocument record."""
-    session = _upload_sessions.pop(upload_id, None)
+    session = _load_session_meta(upload_id)
     if not session or session["ad_id"] != ad_id or session["company_id"] != user.company_id:
         raise HTTPException(status_code=404, detail="Upload session not found")
 
     expected = session["total_chunks"]
-    if len(session["chunks"]) != expected or any(
-        i not in session["chunks"] for i in range(expected)
-    ):
+    sess_dir = _session_dir(upload_id)
+    missing = [i for i in range(expected) if not os.path.exists(os.path.join(sess_dir, f"chunk_{i}.bin"))]
+    if missing:
         raise HTTPException(status_code=400, detail="Incomplete upload — missing chunks")
 
-    file_bytes = b"".join(session["chunks"][i] for i in range(expected))
+    parts = []
+    for i in range(expected):
+        with open(os.path.join(sess_dir, f"chunk_{i}.bin"), "rb") as f:
+            parts.append(f.read())
+    file_bytes = b"".join(parts)
+    _delete_session(upload_id)
 
     file_path = await file_storage.save_bytes(
         data=file_bytes,
@@ -1689,21 +1730,39 @@ async def get_voice_agent_status(
     return status
 
 
+class VoiceCallRequest(BaseModel):
+    phone_number: str
+    action: str = "call_now"
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("phone_number is required")
+        if not v.startswith("+"):
+            raise ValueError("phone_number must include country code (e.g. +1...)")
+        digits = v[1:].replace(" ", "").replace("-", "")
+        if not digits.isdigit() or len(digits) < 7:
+            raise ValueError("phone_number is not a valid phone number")
+        return v
+
+
 @router.post("/{ad_id}/voice-call/request")
 async def request_voice_call(
     ad_id: str,
-    body: dict,
+    body: VoiceCallRequest,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Trigger an outbound phone call to the user's cell via ElevenLabs.
     No auth required — embedded in published landing pages.
 
-    Body: { "phone": "+15551234567", "scheduled_for": "2025-04-07T14:30" (optional) }
+    Body: { "phone_number": "+15551234567", "action": "call_now" }
     """
-    phone = (body.get("phone") or "").strip()
+    phone = body.phone_number
     if not phone:
-        raise HTTPException(status_code=422, detail="phone is required")
+        raise HTTPException(status_code=422, detail="phone_number is required")
 
     svc = VoicebotAgentService(db)
     try:

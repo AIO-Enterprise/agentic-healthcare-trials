@@ -25,12 +25,13 @@ async def _security_headers(request: Request, call_next):
     # HSTS only makes sense when served over HTTPS — skip if no HTTPS configured.
     if not settings.DEBUG and os.getenv("ENABLE_HSTS", "false").lower() == "true":
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    # Hosted landing pages and the website preview endpoint may be framed —
-    # skip X-Frame-Options for those paths only.
+    # Hosted landing pages, the website preview, and document file endpoints
+    # may be framed (PDF/text preview in an <iframe>) — skip X-Frame-Options.
     _path = request.url.path
     _frameable = (
         _path.startswith("/static/pages/") or
-        _path.endswith("/website")
+        _path.endswith("/website") or
+        _path.endswith("/file")          # /{ad_id}/documents/{doc_id}/file and company doc files
     )
     if not _frameable:
         response.headers["X-Frame-Options"] = "DENY"
