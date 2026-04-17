@@ -1219,7 +1219,7 @@ class WebsiteAgentService:
 
   /* ── POST to backend ───────────────────────────────────────────────────── */
   async function requestCall(phone, scheduledFor) {{
-    var body = {{ phone: phone }};
+    var body = {{ phone_number: phone }};
     if (scheduledFor) body.scheduled_for = scheduledFor;
     var resp = await fetch(API_BASE + '/api/advertisements/' + AD_ID + '/voice-call/request', {{
       method: 'POST',
