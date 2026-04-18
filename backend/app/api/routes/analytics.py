@@ -149,7 +149,7 @@ async def regenerate_optimizer_item(
         system=system_prompt,
         messages=[{"role": "user", "content": body.prompt}],
     )
-    text = response.content[0].text.strip()
+    text = response.content[0].text.strip() if response.content else ""
 
     for extractor in [
         lambda t: json.loads(t),
@@ -160,6 +160,8 @@ async def regenerate_optimizer_item(
     ]:
         try:
             result = extractor(text)
+            if not isinstance(result, dict):
+                continue
             # Ensure all three keys exist
             return {
                 "what":   result.get("what",   ""),
